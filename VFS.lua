@@ -77,7 +77,7 @@ function VFS:FindByType(ntype, start)
     r(start or root); return results
 end
 
--- Busca un nodo hijo por nombre en un folder
+-- Finds a child node by name in a folder
 function VFS:FindChild(folder, name)
     if not folder then return nil end
     for _,c in ipairs(folder.children) do
@@ -86,7 +86,7 @@ function VFS:FindChild(folder, name)
     return nil
 end
 
--- Serialización
+-- Serialization
 function VFS:Serialize()
     local list={}
     local function r(node)

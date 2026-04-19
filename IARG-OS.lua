@@ -1,21 +1,21 @@
 ---------------------------------------------------------------------------
 -- IARG-OS.lua — Script principal. Enlazar al CPU0.
 --
--- HARDWARE: CPU0, VideoChip0, FlashMemory0, ROM, RealityChip0, KeyboardChip0
--- ── Hardware ────────────────────────────────────────────────────────────
-local rom = gdt.ROM
-local video    = gdt.VideoChip0
-local flash    = gdt.FlashMemory0
-local rom      = gdt.ROM
-local reality  = gdt.RealityChip
-local keyboard = gdt.KeyboardChip0
-
--- ASSETS CÓDIGO: BD.lua, VFS.lua, SaveSystem.lua, Topbar.lua, CLI.lua, TextPad.lua
--- ASSETS SPR: gameFont.png  (nombre EXACTO en el Multitool, con extensión)
-
-
-pcall(function() sprLogo = rom.User.SpriteSheets["sprOsLogoSmall.png"] end)
-pcall(function() sprSys  = rom.User.SpriteSheets["sprSystem.png"]      end)
+-- HARDWARE:
+--   CPU0          → este script
+--   VideoChip0    → pantalla 336×224
+--   FlashMemory0  → MEDIUM o LARGE
+--   ROM           → assets
+--   RealityChip0  → hora real
+--   KeyboardChip0 → teclado (EventChannel1 del CPU0)
+--
+-- ASSETS CÓDIGO (.lua):
+--   BD.lua, VFS.lua, SaveSystem.lua, Topbar.lua, CLI.lua, TextPad.lua
+--
+-- ASSETS SPRITESHEET (.png):
+--   fontPrincipal.png  → fuente de texto 4×7 px (Tprint)
+--   sprOsLogoSmall.png → logo 24×12 px
+--   sprSystem.png      → iconos 9×9 px (reloj, carpeta, archivo)
 ---------------------------------------------------------------------------
 
 -- ── Requires a nivel raíz ───────────────────────────────────────────────
@@ -26,49 +26,90 @@ local Topbar     = require("Topbar.lua")
 local CLI        = require("CLI.lua")
 local TextPad    = require("TextPad.lua")
 
--- ── Sprites — carga segura con pcall para que un sprite faltante
---    no pete todo el script ──────────────────────────────────────────────
-local font      = nil
-local sprLogo   = nil   -- sprOsLogoSmall.png
-local sprSys    = nil   -- sprSystem.png
--- Intenta fuente de usuario, si no existe usa la del sistema
-pcall(function() font = rom.User.SpriteSheets["gameFont.png"] end)
+-- ── Hardware ────────────────────────────────────────────────────────────
+local video    = gdt.VideoChip0
+local flash    = gdt.FlashMemory0
+local rom      = gdt.ROM
+local reality  = gdt.RealityChip
+local keyboard = gdt.KeyboardChip0
+
+-- ── Sprites — todos con pcall para no petar si falta alguno ─────────────
+local font    = nil
+local sprLogo = nil
+local sprSys  = nil
+
+pcall(function() font    = rom.User.SpriteSheets["fontPrincipal.png"]  end)
+pcall(function() sprLogo = rom.User.SpriteSheets["sprOsLogoSmall.png"] end)
+pcall(function() sprSys  = rom.User.SpriteSheets["sprSystem.png"]      end)
+
+-- Fallback to system StandardFont if user font not found
+-- StandardFont es 8×8 → ajustar CHAR_W/H para que el layout sea correcto
 if not font then
-    font = rom.System.SpriteSheets["StandardFont"]
-    -- StandardFont es 8x8, ajustar BD para que el texto se espacie bien
-    BD.CHAR_W = 8
-    BD.CHAR_H = 8
+    pcall(function() font = rom.System.SpriteSheets["StandardFont"] end)
+    if font then
+        BD.CHAR_W = 8
+        BD.CHAR_H = 8
+    end
 end
 
--- ── Estado global ────────────────────────────────────────────────────────
+-- ── Estado global del OS ─────────────────────────────────────────────────
 OSConfig  = { username = "user", theme = 0 }
-activeApp = nil
+activeApp = nil   -- nil = CLI, "textpad" = editor abierto
 
--- ── Flags de ciclo de vida ───────────────────────────────────────────────
+-- ── Ciclo de vida ────────────────────────────────────────────────────────
 local bootTick = 0
 local bootDone = false
 local bootMsg  = ""
 local osReady  = false
 
 ---------------------------------------------------------------------------
--- Helper de texto para el boot (solo usa DrawSprite, nil-safe)
+-- Tprint for boot screen — misma lógica que Utils:Tprint del proyecto base
+-- Usa directamente font y video sin depender de módulos
 
-local function btext(x, y, txt, r, g, b)
+local function Tprint(x, y, txt, r, g, b, maxWidth)
     if not font then return end
+    maxWidth = maxWidth or 80
+
+    -- Word wrap
+    local function wrap(text, maxC)
+        local lines = {}
+        local cur = ""
+        for para in text:gmatch("[^\n]+") do
+            local words = {}
+            for w in para:gmatch("%S+") do table.insert(words, w) end
+            for _, w in ipairs(words) do
+                local test = #cur > 0 and (cur.." "..w) or w
+                if #test > maxC then
+                    if #cur > 0 then table.insert(lines, cur); cur = w
+                    else table.insert(lines, w); cur = "" end
+                else cur = test end
+            end
+            if #cur > 0 then table.insert(lines, cur); cur = "" end
+        end
+        return table.concat(lines, "\n")
+    end
+
+    txt = wrap(txt, maxWidth)
+    local line, charPos = 0, 0
     for i = 1, #txt do
         local ch = txt:sub(i, i)
-        video:DrawSprite(
-            vec2(x + (i-1)*BD.CHAR_W, y),
-            font,
-            ch:byte() % 32,
-            math.floor(ch:byte() / 32),
-            Color(r, g, b),
-            color.clear)
+        if ch == "\n" then
+            line = line + 1; charPos = 0
+        else
+            video:DrawSprite(
+                vec2(x + BD.CHAR_W * charPos, y + BD.CHAR_H * line),
+                font,
+                ch:byte() % 32,
+                math.floor(ch:byte() / 32),
+                Color(r, g, b),
+                color.clear)
+            charPos = charPos + 1
+        end
     end
 end
 
 ---------------------------------------------------------------------------
--- Boot visual — no usa RasterSprite para evitar el error con font nil
+-- Boot screen
 
 local function drawBoot()
     bootTick = bootTick + 1
@@ -77,61 +118,62 @@ local function drawBoot()
 
     if t <= BD.BOOT_BLACK_END then return end
 
-    -- Alpha del fade-in
-    local alpha255 = math.min(255, math.floor(255 *
-        (t - BD.BOOT_BLACK_END) /
-        math.max(1, BD.BOOT_FADEIN_END - BD.BOOT_BLACK_END)))
+    -- Use real screen dimensions for boot layout
+    local sw = video.Width
+    local sh = video.Height
 
-    -- Logo "IARG-OS" — dibujado con DrawSprite normal (tamaño 1:1)
-    -- centrado verticalmente en el centro de la pantalla
+    -- Centered logo
     local logo  = "IARG-OS"
-    local logoW = #logo * 4
-    local logoX = math.floor((BD.SW - logoW) / 2)
-    local logoY = math.floor(BD.SH / 2) - 16
+    local logoX = math.floor((sw - #logo * BD.CHAR_W) / 2)
+    local logoY = math.floor(sh / 2) - 20
+    Tprint(logoX, logoY, logo, 80, 200, 255)
 
-    btext(logoX, logoY, logo, 80, 200, 255)
+    local sub  = "Intelligent Autonomous RetroGadget OS"
+    local subX = math.floor((sw - #sub * BD.CHAR_W) / 2)
+    Tprint(subX, logoY + BD.CHAR_H + 4, sub, 130, 130, 155)
 
-    -- Subtítulo
-    local sub  = "CLI v0.1 - Intelligent Autonomous RetroGadget OS"
-    local subX = math.floor((BD.SW - #sub * 4) / 2)
-    btext(subX, logoY + 10, sub, 130, 130, 155)
-
-    -- Barra de progreso
+    -- Progress bar
     if t >= BD.BOOT_PROGRESS_START and t <= BD.BOOT_PROGRESS_END then
         local prog = (t - BD.BOOT_PROGRESS_START) /
                      math.max(1, BD.BOOT_PROGRESS_END - BD.BOOT_PROGRESS_START)
-        local bx, by = 60, math.floor(BD.SH / 2) + 6
-        local pw, ph = BD.SW - 120, 5
+        local bx, by = 20, math.floor(sh / 2) + 8
+        local pw, ph = sw - 40, 5
 
-        video:FillRect(vec2(bx,   by),     vec2(bx+pw-1, by+ph-1), Color(22,22,40))
-        video:DrawRect(vec2(bx,   by),     vec2(bx+pw-1, by+ph-1), Color(55,55,80))
-        local fw = math.max(0, math.floor((pw - 2) * prog))
+        video:FillRect(vec2(bx, by),     vec2(bx+pw-1, by+ph-1), Color(22,22,40))
+        video:DrawRect(vec2(bx, by),     vec2(bx+pw-1, by+ph-1), Color(55,55,80))
+        local fw = math.max(0, math.floor((pw-2)*prog))
         if fw > 0 then
-            video:FillRect(vec2(bx+1, by+1), vec2(bx+fw, by+ph-2), Color(80,200,255))
+            video:FillRect(vec2(bx+1,by+1), vec2(bx+fw, by+ph-2), Color(80,200,255))
         end
 
         if BD.BOOT_MESSAGES[t] then bootMsg = BD.BOOT_MESSAGES[t] end
-        btext(math.floor((BD.SW - #bootMsg*4)/2), by + 9, bootMsg, 130, 130, 155)
+        if bootMsg ~= "" then
+            local mx = math.floor((BD.SW - #bootMsg * BD.CHAR_W) / 2)
+            Tprint(mx, by + ph + 4, bootMsg, 130, 130, 155)
+        end
     end
 
-    -- Fade-out final
+    -- Fade-out
     if t >= BD.BOOT_FADEOUT_START then
         local a = math.min(1.0,
             (t - BD.BOOT_FADEOUT_START) /
             math.max(1, BD.BOOT_FADEOUT_END - BD.BOOT_FADEOUT_START))
-        video:FillRect(vec2(0,0), vec2(BD.SW-1, BD.SH-1),
-            ColorRGBA(0, 0, 0, math.floor(255 * a)))
+        video:FillRect(vec2(0,0), vec2(BD.SW-1,BD.SH-1),
+            ColorRGBA(0,0,0, math.floor(255*a)))
     end
 
     if t >= BD.BOOT_DONE then bootDone = true end
 end
 
 ---------------------------------------------------------------------------
--- Init del OS (un tick tras el boot)
+-- OS init -- safe to call Color() here
 
 local function initOS()
-    SaveSystem:Init(flash)
+    -- Build themes (Color() is now available)
+    BD.BuildThemes()
 
+    -- Persistent data
+    SaveSystem:Init(flash)
     if flash.Usage == 0 then
         VFS:Init()
     else
@@ -141,16 +183,23 @@ local function initOS()
 
     local theme = BD.THEMES[OSConfig.theme] or BD.THEMES[0]
 
+    -- Debug: log theme keys to Multitool console
+    if theme then
+        log("theme OK, prompt=" .. tostring(theme.prompt))
+    else
+        log("ERROR: theme is nil! OSConfig.theme=" .. tostring(OSConfig.theme))
+    end
+
     Topbar:Init(video, font, sprLogo, sprSys, reality)
     Topbar:SetTheme(theme)
 
     CLI:Init(video, font, theme, keyboard, function(app, data)
         if app == "TextPad" then
             activeApp = "textpad"
-            local t   = BD.THEMES[OSConfig.theme] or BD.THEMES[0]
-            TextPad:Init(video, font, t, data, function()
+            local t = BD.THEMES[OSConfig.theme] or BD.THEMES[0]
+            TextPad:Init(video, font, t, data, CLI:GetCWD(), function()
                 activeApp = nil
-                CLI:_out("TextPad cerrado.",
+                CLI:_out("TextPad closed.",
                     (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).dim)
             end)
         elseif app == "__theme__" then
@@ -164,22 +213,40 @@ local function initOS()
 end
 
 ---------------------------------------------------------------------------
--- EventChannel1 — KeyboardChip0 enlazado al CPU0 EventChannel 1
+-- EventChannel1 -- KeyboardChip connected to CPU0 EventChannel 1
+
+-- Track modifier keys state internally
+local _shiftHeld = false
+local _ctrlHeld  = false
 
 function eventChannel1(sender, event)
     if not osReady then return end
     if event.Type ~= "KeyboardChipEvent" then return end
-    if not event.ButtonDown then return end
 
-    local shift = keyboard:GetButton("LeftShift").ButtonState
-               or keyboard:GetButton("RightShift").ButtonState
-    local ctrl  = keyboard:GetButton("LeftControl").ButtonState
-               or keyboard:GetButton("RightControl").ButtonState
+    local name = event.InputName:gsub("^KeyboardChip%.", "")
 
-    if activeApp == "textpad" then
-        TextPad:HandleKey(event.InputName, shift, ctrl)
+    -- Track shift and ctrl via ButtonDown/ButtonUp
+    if name == "LeftShift" or name == "RightShift" then
+        _shiftHeld = event.ButtonDown
+        return
+    end
+    if name == "LeftControl" or name == "RightControl" then
+        _ctrlHeld = event.ButtonDown
+        return
+    end
+
+    -- Process both key presses and releases
+    if event.ButtonDown then
+        if activeApp == "textpad" then
+            TextPad:HandleKey(name, _shiftHeld, _ctrlHeld)
+        else
+            CLI:HandleKey(name, _shiftHeld, _ctrlHeld)
+        end
     else
-        CLI:HandleKey(event.InputName)
+        -- Key release - only handle for CLI smooth scroll
+        if activeApp ~= "textpad" then
+            CLI:HandleKeyRelease(name, _shiftHeld, _ctrlHeld)
+        end
     end
 end
 
@@ -187,19 +254,17 @@ end
 -- Update
 
 function update()
-    -- Boot
     if not bootDone then
         drawBoot()
         return
     end
 
-    -- Init (un solo tick)
     if not osReady then
         initOS()
         return
     end
 
-    -- Lógica
+    -- Logic
     if activeApp == "textpad" then
         TextPad:Update()
     else
@@ -210,12 +275,10 @@ function update()
     video:RenderOnScreen()
     video:Clear(color.black)
 
-    -- Topbar siempre presente
     local cwdNode = CLI:GetCWD()
     local cwdName = (cwdNode and cwdNode.parent) and cwdNode.name or ""
     Topbar:Draw(cwdName)
 
-    -- Contenido
     if activeApp == "textpad" then
         TextPad:Draw()
     else

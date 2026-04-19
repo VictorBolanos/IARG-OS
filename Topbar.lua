@@ -22,14 +22,14 @@ local _sprSys  = nil   -- sprSystem.png       (sprites 9×9)
 local _reality = nil
 local _theme   = nil
 
--- Dimensiones de los sprites
+-- Sprite dimensions
 local LOGO_W = 24
 local LOGO_H = 12
 local ICO_W  = 9
 local ICO_H  = 9
 
 ---------------------------------------------------------------------------
--- Tprint local
+-- Local tprint
 
 local function tprint(chip, x, y, txt, col)
     if not _font then return end
@@ -64,7 +64,7 @@ end
 function Topbar:Draw(cwd)
     if not _video or not _theme then return end
 
-    -- Fondo
+    -- Background
     _video:FillRect(vec2(0,0), vec2(BD.SW-1, BD.TOPBAR_H-1), _theme.topbar)
     _video:DrawLine(vec2(0, BD.TOPBAR_H-1), vec2(BD.SW-1, BD.TOPBAR_H-1), _theme.dim)
 
@@ -83,22 +83,22 @@ function Topbar:Draw(cwd)
             color.clear)
         logoX = logoX + LOGO_W + 3
     else
-        -- Fallback: texto si no hay sprite
+        -- Fallback: text if no sprite
         tprint(_video, logoX, 3, "IARG-OS", _theme.tbtext)
         logoX = logoX + 8 * BD.CHAR_W
     end
 
-    -- Directorio actual centrado
+    -- Current directory centered
     if cwd and cwd ~= "" and cwd ~= "root" then
         local dirStr = "~/"..cwd
         local dx = math.floor((BD.SW - #dirStr * BD.CHAR_W) / 2)
         tprint(_video, dx, 3, dirStr, _theme.dim)
     end
 
-    -- Reloj — derecha
+    -- Clock — derecha
     local timeStr = self:GetTimeStr()
     local timeW   = #timeStr * BD.CHAR_W
-    -- Espacio para icono reloj (9px) + gap (2px) + texto
+    -- Space for clock icon (9px) + gap (2px) + texto
     local totalW  = ICO_W + 2 + timeW
     local startX  = BD.SW - totalW - 3
     local iconY   = math.floor((BD.TOPBAR_H - ICO_H) / 2)
@@ -108,7 +108,7 @@ function Topbar:Draw(cwd)
         _video:DrawCustomSprite(
             vec2(startX, iconY),
             _sprSys,
-            vec2(0, 0),          -- offset en el sheet: col 0, fila 0  0*9, 0*9
+            vec2(0, 0),          -- offset in sheet: col 0, fila 0  0*9, 0*9
             vec2(ICO_W, ICO_H),
             _theme.tbclock,
             color.clear)
