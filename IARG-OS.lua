@@ -1,24 +1,24 @@
 ---------------------------------------------------------------------------
--- IARG-OS.lua — Script principal. Enlazar al CPU0.
+-- IARG-OS.lua -- Main script. Link to CPU0.
 --
 -- HARDWARE:
---   CPU0          → este script
---   VideoChip0    → pantalla 336×224
---   FlashMemory0  → MEDIUM o LARGE
---   ROM           → assets
---   RealityChip0  → hora real
---   KeyboardChip0 → teclado (EventChannel1 del CPU0)
+--   CPU0          -- this script
+--   VideoChip0    -- screen 336x224
+--   FlashMemory0  -- MEDIUM or LARGE
+--   ROM           -- assets
+--   RealityChip0  -- real-time clock
+--   KeyboardChip0 -- keyboard (CPU0 EventChannel1)
 --
--- ASSETS CÓDIGO (.lua):
+-- CODE ASSETS (.lua):
 --   BD.lua, VFS.lua, SaveSystem.lua, Topbar.lua, CLI.lua, TextPad.lua
 --
 -- ASSETS SPRITESHEET (.png):
---   fontPrincipal.png  → fuente de texto 4×7 px (Tprint)
---   sprOsLogoSmall.png → logo 24×12 px
---   sprSystem.png      → iconos 9×9 px (reloj, carpeta, archivo)
+--   fontPrincipal.png  -- text font 4x7 px (Tprint)
+--   sprOsLogoSmall.png -- logo 24x12 px
+--   sprSystem.png      -- 9x9 px icons (clock, folder, file)
 ---------------------------------------------------------------------------
 
--- ── Requires a nivel raíz ───────────────────────────────────────────────
+-- Root-level requires
 local BD         = require("BD.lua")
 local VFS        = require("VFS.lua")
 local SaveSystem = require("SaveSystem.lua")
@@ -26,14 +26,14 @@ local Topbar     = require("Topbar.lua")
 local CLI        = require("CLI.lua")
 local TextPad    = require("TextPad.lua")
 
--- ── Hardware ────────────────────────────────────────────────────────────
+-- Hardware
 local video    = gdt.VideoChip0
 local flash    = gdt.FlashMemory0
 local rom      = gdt.ROM
 local reality  = gdt.RealityChip
 local keyboard = gdt.KeyboardChip0
 
--- ── Sprites — todos con pcall para no petar si falta alguno ─────────────
+-- Sprites -- safe load with pcall
 local font    = nil
 local sprLogo = nil
 local sprSys  = nil
@@ -43,7 +43,7 @@ pcall(function() sprLogo = rom.User.SpriteSheets["sprOsLogoSmall.png"] end)
 pcall(function() sprSys  = rom.User.SpriteSheets["sprSystem.png"]      end)
 
 -- Fallback to system StandardFont if user font not found
--- StandardFont es 8×8 → ajustar CHAR_W/H para que el layout sea correcto
+-- StandardFont is 8x8 -- adjust CHAR_W/H accordingly
 if not font then
     pcall(function() font = rom.System.SpriteSheets["StandardFont"] end)
     if font then
@@ -52,19 +52,19 @@ if not font then
     end
 end
 
--- ── Estado global del OS ─────────────────────────────────────────────────
+-- Global OS state
 OSConfig  = { username = "user", theme = 0 }
-activeApp = nil   -- nil = CLI, "textpad" = editor abierto
+activeApp = nil   -- nil = CLI active, "textpad" = editor open
 
--- ── Ciclo de vida ────────────────────────────────────────────────────────
+-- Lifecycle flags
 local bootTick = 0
 local bootDone = false
 local bootMsg  = ""
 local osReady  = false
 
 ---------------------------------------------------------------------------
--- Tprint for boot screen — misma lógica que Utils:Tprint del proyecto base
--- Usa directamente font y video sin depender de módulos
+-- Tprint for boot screen -- same logic as Utils:Tprint from reference project
+-- Uses font and video directly without module dependencies
 
 local function Tprint(x, y, txt, r, g, b, maxWidth)
     if not font then return end
@@ -182,13 +182,6 @@ local function initOS()
     end
 
     local theme = BD.THEMES[OSConfig.theme] or BD.THEMES[0]
-
-    -- Debug: log theme keys to Multitool console
-    if theme then
-        log("theme OK, prompt=" .. tostring(theme.prompt))
-    else
-        log("ERROR: theme is nil! OSConfig.theme=" .. tostring(OSConfig.theme))
-    end
 
     Topbar:Init(video, font, sprLogo, sprSys, reality)
     Topbar:SetTheme(theme)

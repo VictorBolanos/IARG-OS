@@ -6,6 +6,7 @@
 
 local BD = require("BD.lua")
 local SaveSystem = require("SaveSystem.lua")
+local VFS = require("VFS.lua")
 TextPad = {}
 
 local _video   = nil
@@ -13,32 +14,39 @@ local _font    = nil
 local _theme   = nil
 local _onClose = nil   -- callback(wasSaved)
 
-local node      = nil   -- nodo VFS del archivo
-local lines     = {}    -- tabla de strings, una por línea
-local curLine   = 1     -- línea del cursor (1-based)
-local curCol    = 1     -- columna del cursor (1-based, tras último char)
-local scrollTop = 1     -- primera línea visible
+local node        = nil   -- VFS node of the open file
+local _currentDir = nil   -- working directory for Save As
+local lines     = {}    -- table of strings, one per line
+local curLine   = 1     -- cursor line (1-based)
+local curCol    = 1     -- cursor column (1-based)
+local scrollTop = 1     -- first visible line
 local dirty     = false
 local blinkT    = 0
 
 -- Edit area dimensions
 local EDIT_X  = 2
-local EDIT_Y  = BD.CONTENT_Y + 2
-local EDIT_W  = BD.SW - 4
-local VIS     = BD.TP_LINES_VIS   --Q líneas visibles
-local MAXCOLS = BD.TP_CHARS_W     -- cols por línea
+local EDIT_Y  = nil
+local EDIT_W  = nil
+local VIS     = nil
+local MAXCOLS = nil
 
 ---------------------------------------------------------------------------
 
-function TextPad:Init(videoChip, font, themeData, fileNode, onCloseCb, currentDir)
-    _video   = videoChip
-    _font    = font
-    _theme   = themeData
-    _onClose = onCloseCb
-    node     = fileNode
-    dirty    = false
-    blinkT   = 0
-    currentDir = currentDir or VFS:GetRoot()
+function TextPad:Init(videoChip, font, themeData, fileNode, currentDir, onCloseCb)
+    _video      = videoChip
+    _font       = font
+    _theme      = themeData
+    _onClose    = onCloseCb
+    node        = fileNode
+    _currentDir = currentDir or VFS:GetRoot()
+    dirty       = false
+    blinkT      = 0
+
+    -- Initialize layout constants (BD values are final at this point)
+    EDIT_Y  = BD.CONTENT_Y + 2
+    EDIT_W  = (_video and _video.Width or BD.SW) - 4
+    VIS     = BD.TP_LINES_VIS
+    MAXCOLS = BD.TP_CHARS_W or 54
 
     -- Load node content
     local content = (node and node.data) or ""
@@ -100,9 +108,14 @@ end
 
 local saveMsgTimer = 0
 local saveMsgText = ""
-local saveAsMode = false
+local saveAsMode  = false
 local saveAsInput = ""
 local saveAsCursor = 0
+
+-- Title editing mode: Ctrl+Tab toggles between editing filename and text
+local titleMode   = false
+local titleInput  = ""
+local titleCursor = 0
 
 function TextPad:_showSaveMessage(msg)
     saveMsgText = msg
@@ -113,16 +126,9 @@ end
 -- Save As dialog
 
 function TextPad:_startSaveAsDialog()
-    saveAsMode = true
-    -- Start with current name (without extension) or "untitled"
-    if node and node.name then
-        -- Remove .txt extension if present, avoid duplication
-        local baseName = node.name:gsub("%.txt$", "")
-        saveAsInput = baseName
-    else
-        saveAsInput = "untitled"
-    end
-    saveAsCursor = #saveAsInput
+    saveAsMode  = true
+    saveAsInput = ""      -- always start empty, no placeholder
+    saveAsCursor = 0
 end
 
 ---------------------------------------------------------------------------
@@ -155,7 +161,14 @@ function TextPad:_validateSaveAsInput()
     if #saveAsInput > 50 then
         return false, "Filename too long (max 50)"
     end
-    
+
+    -- Check for duplicate name in current directory
+    local cwd = _currentDir or VFS:GetRoot()
+    local fullName = saveAsInput .. ".txt"
+    if VFS:FindChild(cwd, fullName) then
+        return false, "Already exists: " .. fullName
+    end
+
     return true, ""
 end
 
@@ -169,7 +182,7 @@ function TextPad:_executeSaveAs()
         end
         
         -- Use stored current working directory
-        local cwd = currentDir or VFS:GetRoot()
+        local cwd = _currentDir or VFS:GetRoot()
         
         -- Create new file with the specified name + .txt
         local newNode = VFS:CreateFile(cwd, saveAsInput .. ".txt", BD.NT_TXT, self:_serialize())
@@ -189,27 +202,145 @@ function TextPad:_executeSaveAs()
 end
 
 ---------------------------------------------------------------------------
--- Input de teclado — llamado desde IARG-OS cuando llega un KeyboardChipEvent
+-- Title bar key handler (active when titleMode=true)
+
+function TextPad:_handleTitleKey(name, shift, ctrl)
+    if name == "Escape" then
+        titleMode = false   -- cancel, restore original
+        return
+    end
+    if name == "Return" or name == "KeypadEnter" then
+        -- Same as Ctrl+Tab commit — handled above, but just in case
+        titleMode = false
+        return
+    end
+    if name == "Backspace" then
+        if titleCursor > 0 then
+            titleInput  = titleInput:sub(1, titleCursor-1) .. titleInput:sub(titleCursor+1)
+            titleCursor = titleCursor - 1
+        end
+        return
+    end
+    if name == "Delete" then
+        if titleCursor < #titleInput then
+            titleInput = titleInput:sub(1, titleCursor) .. titleInput:sub(titleCursor+2)
+        end
+        return
+    end
+    if name == "LeftArrow"  then titleCursor = math.max(0, titleCursor-1);          return end
+    if name == "RightArrow" then titleCursor = math.min(#titleInput, titleCursor+1); return end
+    if name == "Home"       then titleCursor = 0;                                    return end
+    if name == "End"        then titleCursor = #titleInput;                          return end
+
+    -- Printable char
+    local char = self:_inputToChar(name, shift)
+    if char and #titleInput < 50 then
+        -- Block characters invalid in filenames
+        if not char:match('[<>:"/\|?*]') then
+            titleInput  = titleInput:sub(1, titleCursor) .. char .. titleInput:sub(titleCursor+1)
+            titleCursor = titleCursor + 1
+        end
+    end
+end
+
+---------------------------------------------------------------------------
+-- Input de teclado -- called from IARG-OS on KeyboardChipEvent
 
 function TextPad:HandleKey(inputName, shift, ctrl)
-    -- Esc  salir
-    if inputName == "Escape" then
-        if dirty then
-            -- auto-save on exit
-            self:Save()
+
+    -- ── Title mode: intercept ALL keys before anything else ───────────
+    if titleMode then
+        if inputName == "Escape" then
+            titleMode = false   -- cancel, no rename
+            return
         end
-        if _onClose then _onClose(dirty) end
+        if inputName == "Return" or inputName == "KeypadEnter" then
+            -- Commit rename on Enter
+            local trimmed = titleInput:match("^%s*(.-)%s*$")
+            if trimmed and #trimmed > 0 then
+                local fullName = trimmed
+                if not fullName:match("%.txt$") then fullName = fullName .. ".txt" end
+                local cwd = _currentDir or VFS:GetRoot()
+                local existing = VFS:FindChild(cwd, fullName)
+                if existing and existing ~= node then
+                    self:_showSaveMessage("ERROR: Already exists: " .. fullName)
+                elseif node then
+                    node.name = fullName
+                    dirty = true
+                    self:_showSaveMessage("Renamed to: " .. fullName)
+                end
+            end
+            titleMode = false
+            return
+        end
+        -- All other keys routed to title key handler
+        self:_handleTitleKey(inputName, shift, ctrl)
         return
     end
 
-    -- Ctrl+S  guardar
+    -- ── Save As mode: intercept ALL keys before anything else ─────────
+    if saveAsMode then
+        if inputName == "Escape" then
+            saveAsMode   = false
+            saveAsInput  = ""
+            saveAsCursor = 0
+            return
+        end
+        if inputName == "Return" or inputName == "KeypadEnter" then
+            self:_executeSaveAs()
+            return
+        end
+        if inputName == "Backspace" then
+            if saveAsCursor > 0 then
+                saveAsInput  = saveAsInput:sub(1, saveAsCursor-1) .. saveAsInput:sub(saveAsCursor+1)
+                saveAsCursor = saveAsCursor - 1
+            end
+            return
+        end
+        if inputName == "Delete" then
+            if saveAsCursor < #saveAsInput then
+                saveAsInput = saveAsInput:sub(1, saveAsCursor) .. saveAsInput:sub(saveAsCursor+2)
+            end
+            return
+        end
+        if inputName == "LeftArrow"  then saveAsCursor = math.max(0, saveAsCursor-1);             return end
+        if inputName == "RightArrow" then saveAsCursor = math.min(#saveAsInput, saveAsCursor+1);  return end
+        if inputName == "Home"       then saveAsCursor = 0;                                        return end
+        if inputName == "End"        then saveAsCursor = #saveAsInput;                             return end
+        local char = self:_inputToChar(inputName, shift)
+        if char and #saveAsInput < 50 then
+            if not char:match('[<>:"/\|?*]') then
+                saveAsInput  = saveAsInput:sub(1, saveAsCursor) .. char .. saveAsInput:sub(saveAsCursor+1)
+                saveAsCursor = saveAsCursor + 1
+            end
+        end
+        return
+    end
+
+    -- ── Normal mode ────────────────────────────────────────────────────
+
+    -- Esc = exit without saving
+    if inputName == "Escape" then
+        if _onClose then _onClose(false) end
+        return
+    end
+
+    -- Ctrl+S = save
     if ctrl and inputName == "S" and not shift then
         self:Save(); return
     end
-    
-    -- Ctrl+Shift+S  Save As
+
+    -- Ctrl+Shift+S = Save As
     if ctrl and shift and inputName == "S" then
         self:_startSaveAsDialog(); return
+    end
+
+    -- Ctrl+Tab = enter title editing mode
+    if ctrl and inputName == "Tab" then
+        titleMode   = true
+        titleInput  = node and node.name:gsub("%.txt$", "") or ""
+        titleCursor = #titleInput
+        return
     end
 
     -- Navigation
@@ -264,25 +395,14 @@ function TextPad:HandleKey(inputName, shift, ctrl)
         self:_ensureVisible(); return
     end
 
-    -- Backspace (different behavior in Save As mode)
+    -- Backspace
     if inputName == "Backspace" then
-        if saveAsMode then
-            -- Backspace only affects Save As input
-            if saveAsCursor > 1 then
-                saveAsInput = saveAsInput:sub(1, saveAsCursor-1) .. saveAsInput:sub(saveAsCursor+1)
-                saveAsCursor = saveAsCursor - 1
-            end
-            return
-        end
-        
-        -- Normal Backspace for document editing
         if curCol > 1 then
             local l = lines[curLine]
             lines[curLine] = l:sub(1, curCol-2) .. l:sub(curCol)
             curCol = curCol - 1
             dirty  = true
         elseif curLine > 1 then
-            -- fusionar con línea anterior
             local prev = lines[curLine-1]
             local curr = lines[curLine]
             curCol = #prev + 1
@@ -294,17 +414,8 @@ function TextPad:HandleKey(inputName, shift, ctrl)
         self:_ensureVisible(); return
     end
 
-    -- Delete (different behavior in Save As mode)
+    -- Delete
     if inputName == "Delete" then
-        if saveAsMode then
-            -- Delete only affects Save As input
-            if saveAsCursor <= #saveAsInput then
-                saveAsInput = saveAsInput:sub(1, saveAsCursor-1) .. saveAsInput:sub(saveAsCursor+2)
-            end
-            return
-        end
-        
-        -- Normal Delete for document editing
         local l = lines[curLine]
         if curCol <= #l then
             lines[curLine] = l:sub(1, curCol-1) .. l:sub(curCol+1)
@@ -317,15 +428,9 @@ function TextPad:HandleKey(inputName, shift, ctrl)
         return
     end
 
-    -- Enter (different behavior in Save As mode)
-    if inputName == "Return" then
-        if saveAsMode then
-            -- Enter only executes Save As
-            self:_executeSaveAs(); return
-        end
-        
-        -- Normal Enter for document editing
-        local l    = lines[curLine]
+    -- Enter -- new line
+    if inputName == "Return" or inputName == "KeypadEnter" then
+        local l      = lines[curLine]
         local before = l:sub(1, curCol-1)
         local after  = l:sub(curCol)
         lines[curLine] = before
@@ -336,66 +441,31 @@ function TextPad:HandleKey(inputName, shift, ctrl)
         self:_ensureVisible(); return
     end
 
-    -- Tab 4 espacios (disabled in Save As mode)
-    if inputName == "Tab" and not saveAsMode then
-        local spaces = "    "
+    -- Tab = 4 spaces
+    if inputName == "Tab" then
         local l = lines[curLine]
-        local total = #l + 4
-        if total <= BD.TP_MAX_CHARS then
-            lines[curLine] = l:sub(1,curCol-1)..spaces..l:sub(curCol)
+        if #self:_serialize() + 4 <= BD.TP_MAX_CHARS then
+            lines[curLine] = l:sub(1,curCol-1) .. "    " .. l:sub(curCol)
             curCol = curCol + 4
             dirty  = true
         end
         return
     end
 
-    -- Printable character (only when not in Save As mode)
-    if not saveAsMode then
-        local char = self:_inputToChar(inputName, shift)
-        if char then
-            local l = lines[curLine]
-            if #self:_serialize() < BD.TP_MAX_CHARS then
-                lines[curLine] = l:sub(1,curCol-1)..char..l:sub(curCol)
-                curCol = curCol + 1
-                dirty  = true
-            end
+    -- Printable character
+    local char = self:_inputToChar(inputName, shift)
+    if char then
+        local l = lines[curLine]
+        if #self:_serialize() < BD.TP_MAX_CHARS then
+            lines[curLine] = l:sub(1,curCol-1) .. char .. l:sub(curCol)
+            curCol = curCol + 1
+            dirty  = true
         end
-    end
-    
-    -- Save As mode input handling
-    if saveAsMode then
-        if inputName == "Return" or inputName == "KeypadEnter" then
-            self:_executeSaveAs(); return
-        end
-        
-        if inputName == "Escape" then
-            saveAsMode = false
-            saveAsInput = ""
-            saveAsCursor = 0
-            return
-        end
-        
-        -- Backspace in Save As mode
-        if inputName == "Backspace" then
-            if saveAsCursor > 1 then
-                saveAsInput = saveAsInput:sub(1, saveAsCursor-1) .. saveAsInput:sub(saveAsCursor+1)
-                saveAsCursor = saveAsCursor - 1
-            end
-            return
-        end
-        
-        -- Normal character input in Save As mode
-        local char = self:_inputToChar(inputName, shift)
-        if char then
-            saveAsInput = saveAsInput:sub(1, saveAsCursor-1) .. char .. saveAsInput:sub(saveAsCursor+1)
-            saveAsCursor = saveAsCursor + 1
-        end
-        return
     end
 end
 
 ---------------------------------------------------------------------------
--- Convierte InputName a carácter
+-- Convert InputName to printable character
 
 function TextPad:_inputToChar(name, shift)
     -- Letters A-Z
@@ -455,23 +525,33 @@ function TextPad:Draw()
     _video:FillRect(vec2(0, BD.CONTENT_Y), vec2(BD.SW-1, BD.SH-1), _theme.bg)
 
     -- Editor header
-    local fname = node and node.name or "sin titulo"
-    if dirty then fname = fname.." *" end
-    
-    -- Different header when in Save As mode
+    local fname = node and node.name or "[unsaved]"
+    if dirty then fname = fname .. " *" end
+
     local header
+    local headerColor = _theme.dim
+
     if saveAsMode then
-        header = "-- Save As: "..saveAsInput.."_ [Enter=save ESC=cancel]"
-        -- Draw cursor for Save As input
-        local cursorX = EDIT_X + #"-- Save As: " * BD.CHAR_W + saveAsCursor * BD.CHAR_W
+        -- Save As dialog in header
+        header = "Save As: " .. saveAsInput
+        local cursorX = EDIT_X + #"Save As: " * BD.CHAR_W + saveAsCursor * BD.CHAR_W
         if blinkT < BD.CURSOR_BLINK then
-            _video:DrawLine(vec2(cursorX, BD.CONTENT_Y+1), vec2(cursorX, BD.CONTENT_Y+1 + BD.CHAR_H), _theme.text)
+            _video:DrawLine(vec2(cursorX, BD.CONTENT_Y+1), vec2(cursorX, BD.CONTENT_Y+1+BD.CHAR_H), _theme.prompt)
         end
+        headerColor = _theme.prompt
+    elseif titleMode then
+        -- Title editing mode
+        header = "Name: " .. titleInput
+        local cursorX = EDIT_X + #"Name: " * BD.CHAR_W + titleCursor * BD.CHAR_W
+        if blinkT < BD.CURSOR_BLINK then
+            _video:DrawLine(vec2(cursorX, BD.CONTENT_Y+1), vec2(cursorX, BD.CONTENT_Y+1+BD.CHAR_H), _theme.success)
+        end
+        headerColor = _theme.success
     else
-        header = "-- TextPad: "..fname.." -- [ESC=salir Ctrl+S=guardar Ctrl+Shift+S=save as]"
+        header = fname .. "  [Ctrl+S=save  Ctrl+Shift+S=save as  Ctrl+Tab=rename  ESC=exit]"
     end
-    
-    self:_tprint(EDIT_X, BD.CONTENT_Y+1, header, _theme.dim)
+
+    self:_tprint(EDIT_X, BD.CONTENT_Y+1, header, headerColor)
     _video:DrawLine(vec2(0, BD.CONTENT_Y+9), vec2(BD.SW-1, BD.CONTENT_Y+9), _theme.dim)
     
     -- Show save message if active (overlay on top)

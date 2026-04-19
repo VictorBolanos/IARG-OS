@@ -1,19 +1,19 @@
 ---------------------------------------------------------------------------
--- BD.lua — Constantes globales de IARG-OS (versión CLI)
--- SIN llamadas a Color() — los temas se inicializan en initOS()
+-- BD.lua -- Global constants for IARG-OS (CLI mode)
+-- NO Color() calls at root level -- themes are built in initOS()
 ---------------------------------------------------------------------------
 
 BD = {}
 
 -- SCREEN
 BD.SW        = 336
-BD.SH        = 160
+BD.SH        = 160  -- real screen height (video.Height)
 BD.TOPBAR_H  = 12
 BD.TOPBAR_Y  = 0
 BD.CONTENT_Y = 12
 BD.CONTENT_H = 212
 
--- FONT — fontPrincipal.png usa 4×7 px por carácter (Tprint)
+-- FONT -- fontPrincipal.png uses 4x7 px per character (Tprint)
 BD.CHAR_W = 4
 BD.CHAR_H = 7
 
@@ -49,6 +49,7 @@ BD.BOOT_MESSAGES = {
 -- TEXTPAD
 BD.TP_MAX_CHARS = 2000
 BD.TP_LINES_VIS = 18
+BD.TP_CHARS_W   = 54    -- chars per line in editor (336-4-linenum) / 4
 
 -- VFS
 BD.VFS_MAX_NODES = 80
@@ -59,7 +60,7 @@ BD.NT_TXT    = "txt"
 -- SAVE
 BD.SAVE_VERSION = 2
 
--- THEMES — solo valores RGB, Color() se crea en initOS() con BD.BuildThemes()
+-- THEMES -- RGB values only, Color() objects built via BD.BuildThemes() in initOS()
 -- Format: {bg, text, prompt, output, error, success, dim, topbar, tbtext, tbclock, cursor}
 -- each value is {r, g, b}
 BD.THEME_DATA = {

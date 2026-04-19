@@ -576,6 +576,10 @@ function CLI:Draw()
     local outputBottom = promptY - 4
     local visLines = math.floor((outputBottom - BD.CONTENT_Y) / BD.CHAR_H)
 
+    -- Keep maxScrollOffset current every frame
+    maxScrollOffset = math.max(0, #outputBuf - visLines)
+    if outputScrollOffset > maxScrollOffset then outputScrollOffset = maxScrollOffset end
+
     -- Output buffer with scroll offset
     local startIdx = math.max(1, #outputBuf - visLines + 1 - outputScrollOffset)
     local endIdx = math.min(#outputBuf, startIdx + visLines - 1)
@@ -589,7 +593,7 @@ function CLI:Draw()
 
     -- Show scroll indicator if not at bottom
     if outputScrollOffset > 0 then
-        local scrollIndicator = "↑" .. outputScrollOffset
+        local scrollIndicator = "^" .. outputScrollOffset .. " lines"
         tp(BD.SW - #scrollIndicator * BD.CHAR_W - 2, outputBottom - BD.CHAR_H, scrollIndicator, _theme.dim)
     end
 
@@ -609,10 +613,6 @@ function CLI:Draw()
             _theme.cursor)
     end
 
-    -- Debug: log real screen size once
-    if blinkT == 1 then
-        log("Screen: " .. sw .. "x" .. sh .. " promptY=" .. promptY)
-    end
 end
 
 ---------------------------------------------------------------------------

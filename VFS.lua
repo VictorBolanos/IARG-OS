@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------
--- VFS.lua — Sistema de Archivos Virtual
+-- VFS.lua -- Virtual File System
 ---------------------------------------------------------------------------
 
 local BD = require("BD.lua")
@@ -16,9 +16,9 @@ end
 
 function VFS:Init()
     nextId=1; nodeMap={}
-    root = newNode(nextId,"root",BD.NT_FOLDER,nil); nodeMap[nextId]=root; nextId=nextId+1
-    local docs = newNode(nextId,"Documentos",BD.NT_FOLDER,root)
-    nodeMap[nextId]=docs; nextId=nextId+1; table.insert(root.children,docs)
+    root = newNode(nextId,"root",BD.NT_FOLDER,nil)
+    nodeMap[nextId]=root
+    nextId=nextId+1
 end
 
 function VFS:GetRoot()    return root end

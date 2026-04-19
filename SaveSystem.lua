@@ -1,5 +1,5 @@
 ---------------------------------------------------------------------------
--- SaveSystem.lua — Persistencia en FlashMemory
+-- SaveSystem.lua -- FlashMemory persistence
 ---------------------------------------------------------------------------
 
 local BD = require("BD.lua")

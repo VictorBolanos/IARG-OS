@@ -1,14 +1,14 @@
 ---------------------------------------------------------------------------
--- Topbar.lua — Barra superior con logo, directorio actual y reloj real
+-- Topbar.lua -- Top bar with logo, current directory and real-time clock
 --
 -- SPRITES:
---   sprOsLogoSmall.png   24×12 px, imagen entera (no grid)
---                          se dibuja con DrawCustomSprite para usar tamaño real
---   sprSystem.png        sprites de 9×9 px en grid:
+--   sprOsLogoSmall.png   24x12 px, full image (no grid)
+--                          drawn with DrawCustomSprite at actual size
+--   sprSystem.png        9x9 px sprites in grid:
 --     sx=0, sy=0   Reloj
---     sx=0, sy=1   Carpeta pequeña
+--     sx=0, sy=1   Small folder
 --     sx=1, sy=1   Archivo de texto
---     (filas/cols adicionales reservadas)
+--     (additional rows/cols reserved)
 ---------------------------------------------------------------------------
 
 local BD = require("BD.lua")
@@ -17,8 +17,8 @@ Topbar = {}
 
 local _video   = nil
 local _font    = nil
-local _sprLogo = nil   -- sprOsLogoSmall.png  (24×12)
-local _sprSys  = nil   -- sprSystem.png       (sprites 9×9)
+local _sprLogo = nil   -- sprOsLogoSmall.png  (24x12)
+local _sprSys  = nil   -- sprSystem.png       (9x9 sprites)
 local _reality = nil
 local _theme   = nil
 
@@ -68,17 +68,16 @@ function Topbar:Draw(cwd)
     _video:FillRect(vec2(0,0), vec2(BD.SW-1, BD.TOPBAR_H-1), _theme.topbar)
     _video:DrawLine(vec2(0, BD.TOPBAR_H-1), vec2(BD.SW-1, BD.TOPBAR_H-1), _theme.dim)
 
-    -- Logo (24×12) centrado verticalmente en la topbar de 12px
-    -- TOPBAR_H=12, LOGO_H=12  logoY=0
+    -- Logo (24x12) vertically centered in 12px topbar
     local logoX = 2
     local logoY = math.floor((BD.TOPBAR_H - LOGO_H) / 2)
     if _sprLogo then
-        -- DrawCustomSprite: dibuja la imagen completa sin tener en cuenta grid
+        -- DrawCustomSprite: draws the full image ignoring the sprite grid
         _video:DrawCustomSprite(
             vec2(logoX, logoY),
             _sprLogo,
             vec2(0, 0),           -- offset dentro del sprite
-            vec2(LOGO_W, LOGO_H), -- tamaño a dibujar
+            vec2(LOGO_W, LOGO_H), -- draw size
             color.white,
             color.clear)
         logoX = logoX + LOGO_W + 3
@@ -95,20 +94,20 @@ function Topbar:Draw(cwd)
         tprint(_video, dx, 3, dirStr, _theme.dim)
     end
 
-    -- Clock — derecha
+    -- Clock -- right side
     local timeStr = self:GetTimeStr()
     local timeW   = #timeStr * BD.CHAR_W
-    -- Space for clock icon (9px) + gap (2px) + texto
+    -- Space for clock icon (9px) + gap (2px) + text
     local totalW  = ICO_W + 2 + timeW
     local startX  = BD.SW - totalW - 3
     local iconY   = math.floor((BD.TOPBAR_H - ICO_H) / 2)
 
     if _sprSys then
-        -- Icono reloj: sx=0, sy=0
+        -- Clock icon: sx=0, sy=0
         _video:DrawCustomSprite(
             vec2(startX, iconY),
             _sprSys,
-            vec2(0, 0),          -- offset in sheet: col 0, fila 0  0*9, 0*9
+            vec2(0, 0),          -- offset in sheet: col 0, row 0
             vec2(ICO_W, ICO_H),
             _theme.tbclock,
             color.clear)
