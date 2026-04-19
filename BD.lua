@@ -1,24 +1,30 @@
 ---------------------------------------------------------------------------
--- BD.lua — Constantes globales de IARG-OS
--- NO hace require de nada. Solo define la tabla BD global.
--- Se carga primero desde IARG-OS.lua con require("BD.lua")
+-- BD.lua — Constantes globales de IARG-OS (versión CLI)
 ---------------------------------------------------------------------------
 
 BD = {}
 
 -- PANTALLA
-BD.SW         = 336
-BD.SH         = 224
-BD.TOPBAR_H   = 12
-BD.TASKBAR_H  = 12
-BD.TOPBAR_Y   = 0
-BD.TASKBAR_Y  = 212
-BD.CONTENT_Y  = 12
-BD.CONTENT_H  = 200   -- 224 - 12 - 12
+BD.SW        = 336
+BD.SH        = 224
+BD.TOPBAR_H  = 12
+BD.TOPBAR_Y  = 0
+BD.CONTENT_Y = 12
+BD.CONTENT_H = 212   -- 224 - 12 (sin taskbar en CLI)
 
--- FUENTE (Tprint: 4×7 px por carácter)
+-- FUENTE — Tprint usa 4×7 px por carácter
 BD.CHAR_W = 4
 BD.CHAR_H = 7
+
+-- CLI — área de terminal
+BD.CLI_X         = 2              -- margen izquierdo
+BD.CLI_W         = 332            -- ancho útil
+BD.CLI_FIRST_Y   = 14             -- primera línea de output (bajo topbar)
+BD.CLI_MAX_LINES = 28             -- líneas visibles: 212/7  30, dejamos margen
+BD.CLI_CHARS     = 82             -- chars por línea: 332/4
+
+-- PROMPT
+BD.PROMPT_PREFIX = "> "           -- prefijo del prompt
 
 -- INPUT
 BD.HOLD_TICKS       = 35
@@ -40,84 +46,79 @@ BD.BOOT_MESSAGES = {
     [46] = "Cargando IARG-Kernel...",
     [54] = "Montando sistema de archivos...",
     [62] = "Leyendo FlashMemory...",
-    [70] = "Iniciando escritorio...",
+    [70] = "Iniciando CLI...",
     [72] = "Listo.",
 }
 
--- ESCRITORIO
-BD.ICON_SPR    = 16
-BD.ICON_CELL_W = 48
-BD.ICON_CELL_H = 36
-BD.ICON_PAD_Y  = 4
-BD.ICON_LABEL_Y = 24
-
--- POPUP
-BD.POPUP_W = 180
-BD.POPUP_H = 80
-BD.POPUP_X = 78    -- (336-180)/2
-BD.POPUP_Y = 72    -- (224-80)/2
-
 -- TEXTPAD
-BD.TP_MAX_CHARS    = 1500
-BD.TP_HEADER_H     = 16
-BD.TP_TEXTAREA_Y   = 28
-BD.TP_TEXTAREA_H   = 124
-BD.TP_TEXTAREA_X   = 18   -- deja espacio para nro de línea
-BD.TP_TEXTAREA_W   = 314
-
--- PIXELPAINT
-BD.PP_CANVAS_W   = 56
-BD.PP_CANVAS_H   = 48
-BD.PP_ZOOM       = 3
-BD.PP_PANEL_W    = 64
-BD.PP_CANVAS_X   = 68
-BD.PP_CANVAS_Y   = 28
-
--- PALETA 16 colores (valores 0-255)
-BD.PALETTE = {
-    [0]  = {r=18,  g=18,  b=32},
-    [1]  = {r=255, g=255, b=255},
-    [2]  = {r=180, g=180, b=200},
-    [3]  = {r=90,  g=90,  b=110},
-    [4]  = {r=220, g=50,  b=50},
-    [5]  = {r=50,  g=200, b=80},
-    [6]  = {r=60,  g=120, b=220},
-    [7]  = {r=230, g=210, b=50},
-    [8]  = {r=230, g=120, b=30},
-    [9]  = {r=160, g=60,  b=210},
-    [10] = {r=50,  g=210, b=220},
-    [11] = {r=230, g=100, b=160},
-    [12] = {r=130, g=70,  b=30},
-    [13] = {r=130, g=220, b=80},
-    [14] = {r=100, g=180, b=255},
-    [15] = {r=220, g=200, b=160},
-}
+BD.TP_MAX_CHARS = 2000
+BD.TP_CHARS_W   = 82    -- chars por línea en el editor
+BD.TP_LINES_VIS = 27    -- líneas visibles en el editor
 
 -- VFS
 BD.VFS_MAX_NODES = 80
 BD.NT_FOLDER = "folder"
 BD.NT_APP    = "app"
 BD.NT_TXT    = "txt"
-BD.NT_IMG    = "img"
 
--- Iconos en uiIcons.png (col, fila) — sprites 16×16
-BD.ICO_TEXTPAD    = {sx=0, sy=0}
-BD.ICO_PIXELPAINT = {sx=1, sy=0}
-BD.ICO_FOLDER     = {sx=2, sy=0}
-BD.ICO_FOLDER_OPEN= {sx=3, sy=0}
-BD.ICO_TXT        = {sx=4, sy=0}
-BD.ICO_IMG        = {sx=5, sy=0}
-BD.ICO_UNKNOWN    = {sx=6, sy=0}
-BD.ICO_SAVE       = {sx=0, sy=1}
-BD.ICO_HOME       = {sx=1, sy=1}
-BD.ICO_BACK       = {sx=2, sy=1}
-BD.ICO_OK         = {sx=3, sy=1}
-BD.ICO_CANCEL     = {sx=4, sy=1}
-BD.ICO_NEW        = {sx=5, sy=1}
-BD.ICO_DELETE     = {sx=6, sy=1}
-BD.ICO_RENAME     = {sx=7, sy=1}
+-- PALETA (para themes)
+BD.THEMES = {
+    [0] = { -- IARG Classic (cyan oscuro)
+        bg       = Color(12,  12,  24),
+        text     = Color(200, 220, 200),
+        prompt   = Color(80,  200, 255),
+        output   = Color(180, 180, 210),
+        error    = Color(255, 80,  80),
+        success  = Color(80,  220, 120),
+        dim      = Color(90,  90,  120),
+        topbar   = Color(8,   8,   18),
+        tbtext   = Color(80,  200, 255),
+        tbclock  = Color(200, 200, 220),
+        cursor   = Color(80,  200, 255),
+    },
+    [1] = { -- Amber Terminal
+        bg       = Color(10,  8,   0),
+        text     = Color(255, 176, 0),
+        prompt   = Color(255, 220, 80),
+        output   = Color(220, 150, 0),
+        error    = Color(255, 60,  0),
+        success  = Color(180, 255, 80),
+        dim      = Color(120, 80,  0),
+        topbar   = Color(6,   4,   0),
+        tbtext   = Color(255, 200, 0),
+        tbclock  = Color(200, 150, 0),
+        cursor   = Color(255, 200, 0),
+    },
+    [2] = { -- Green Matrix
+        bg       = Color(0,   10,  0),
+        text     = Color(0,   220, 0),
+        prompt   = Color(80,  255, 80),
+        output   = Color(0,   180, 0),
+        error    = Color(255, 80,  0),
+        success  = Color(180, 255, 100),
+        dim      = Color(0,   80,  0),
+        topbar   = Color(0,   6,   0),
+        tbtext   = Color(0,   220, 80),
+        tbclock  = Color(0,   180, 0),
+        cursor   = Color(0,   255, 80),
+    },
+    [3] = { -- Blanco / Arctic
+        bg       = Color(230, 235, 240),
+        text     = Color(20,  20,  40),
+        prompt   = Color(0,   80,  180),
+        output   = Color(40,  40,  80),
+        error    = Color(200, 0,   0),
+        success  = Color(0,   140, 0),
+        dim      = Color(140, 140, 160),
+        topbar   = Color(200, 210, 220),
+        tbtext   = Color(0,   80,  180),
+        tbclock  = Color(40,  40,  80),
+        cursor   = Color(0,   80,  180),
+    },
+}
 
--- SAVE
-BD.SAVE_VERSION = 1
+BD.SAVE_VERSION = 2
+
+---------------------------------------------------------------------------
 
 return BD

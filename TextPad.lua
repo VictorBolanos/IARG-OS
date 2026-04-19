@@ -1,297 +1,338 @@
 ---------------------------------------------------------------------------
--- TextPad.lua — Editor de texto
--- Usa globales: BD, Theme, Renderer, InputManager, VFS, UI, VirtualKeyboard
--- SaveSystem, OSConfig. NO hace require de nada.
+-- TextPad.lua — Editor de texto para el CLI
+-- Ocupa toda el área de contenido. Input por KeyboardChip.
+-- Comandos internos: Esc=salir, Ctrl+S=guardar (implementado via LedButton)
 ---------------------------------------------------------------------------
 
+local BD = require("BD.lua")
+local SaveSystem = require("SaveSystem.lua")
 TextPad = {}
 
--- Constantes de layout — se inicializan en Init() cuando BD ya existe
-local HDR_Y, HDR_H, LIST_Y, ITEM_H, FOOT_Y, FOOT_H
-local TA_Y, TA_H, TA_X, TA_W, VIS
+local _video   = nil
+local _font    = nil
+local _theme   = nil
+local _onClose = nil   -- callback(wasSaved)
 
-local state        = "LIST"
-local fileList     = {}
-local selIdx       = 0
-local curNode      = nil
-local editText     = ""
-local cursor       = 0
-local dirty        = false
-local blinkTick    = 0
-local textScroll   = 0
-local onClose      = nil
-local newNameBuf   = ""
-local waitName     = false
+local node      = nil   -- nodo VFS del archivo
+local lines     = {}    -- tabla de strings, una por línea
+local curLine   = 1     -- línea del cursor (1-based)
+local curCol    = 1     -- columna del cursor (1-based, tras último char)
+local scrollTop = 1     -- primera línea visible
+local dirty     = false
+local blinkT    = 0
+
+-- Dimensiones del área de edición
+local EDIT_X  = 2
+local EDIT_Y  = BD.CONTENT_Y + 2
+local EDIT_W  = BD.SW - 4
+local VIS     = BD.TP_LINES_VIS   -- líneas visibles
+local MAXCOLS = BD.TP_CHARS_W     -- cols por línea
 
 ---------------------------------------------------------------------------
 
-function TextPad:Init(closeCb, targetFile)
-    -- Inicializar constantes de layout aquí (BD ya existe en este punto)
-    HDR_Y  = BD.CONTENT_Y
-    HDR_H  = 16
-    LIST_Y = HDR_Y + HDR_H
-    ITEM_H = 18
-    FOOT_Y = BD.TASKBAR_Y - 16
-    FOOT_H = 16
-    TA_Y   = HDR_Y + HDR_H
-    TA_H   = BD.TP_TEXTAREA_H
-    TA_X   = BD.TP_TEXTAREA_X
-    TA_W   = BD.TP_TEXTAREA_W
-    VIS    = math.floor(TA_H / BD.CHAR_H)
-    onClose = closeCb; state="LIST"; selIdx=0; dirty=false
-    self:_refreshList()
-    if targetFile then self:_openFile(targetFile) end
-    UI:SetAppTitle("TextPad")
-    UI:SetTaskbarCallbacks(
-        function() self:_handleBack() end,
-        function() if onClose then onClose() end end)
-end
+function TextPad:Init(videoChip, font, themeData, fileNode, onCloseCb)
+    _video   = videoChip
+    _font    = font
+    _theme   = themeData
+    _onClose = onCloseCb
+    node     = fileNode
+    dirty    = false
+    blinkT   = 0
 
-function TextPad:_refreshList()
-    fileList = VFS:FindByType(BD.NT_TXT)
-end
-
-function TextPad:_openFile(node)
-    curNode=node; editText=node.data or ""; cursor=#editText
-    dirty=false; blinkTick=0; textScroll=0; state="EDIT"
-    VirtualKeyboard:Show(function(ch) self:_handleKey(ch) end)
-    UI:SetTaskbarCallbacks(
-        function() self:_handleBack() end,
-        function() if onClose then onClose() end end)
-end
-
-function TextPad:_createNew(name)
-    local parent = nil
-    for _, f in ipairs(VFS:FindByType(BD.NT_FOLDER)) do
-        if f.name=="Documentos" then parent=f; break end
+    -- Cargar contenido del nodo
+    local content = (node and node.data) or ""
+    lines = {}
+    -- Dividir por \n
+    for line in (content.."\n"):gmatch("([^\n]*)\n") do
+        table.insert(lines, line)
     end
-    if not parent then parent=VFS:GetRoot() end
-    local n = VFS:CreateFile(parent, name, BD.NT_TXT, "")
-    if n then self:_refreshList(); self:_openFile(n); UI:SetDirty(true) end
+    if #lines == 0 then lines = {""} end
+    curLine   = #lines
+    curCol    = #lines[curLine] + 1
+    scrollTop = 1
+    self:_ensureVisible()
 end
 
-function TextPad:_save()
-    if not curNode then return end
-    curNode.data=editText; dirty=false; UI:SetDirty(false)
-    SaveSystem:Save(OSConfig)
-end
+---------------------------------------------------------------------------
+-- Asegura que curLine está dentro del scroll visible
 
-function TextPad:_handleKey(ch)
-    if ch=="DEL" then
-        if cursor>0 then editText=editText:sub(1,cursor-1)..editText:sub(cursor+1); cursor=cursor-1; dirty=true end
-    elseif ch=="ENTER" then
-        if #editText<BD.TP_MAX_CHARS then editText=editText:sub(1,cursor).."\n"..editText:sub(cursor+1); cursor=cursor+1; dirty=true end
-    elseif ch=="LEFT"  then cursor=math.max(0,cursor-1)
-    elseif ch=="RIGHT" then cursor=math.min(#editText,cursor+1)
-    elseif ch=="OK" or ch=="ESC" then VirtualKeyboard:Hide()
-    elseif #ch==1 then
-        if #editText<BD.TP_MAX_CHARS then editText=editText:sub(1,cursor)..ch..editText:sub(cursor+1); cursor=cursor+1; dirty=true end
+function TextPad:_ensureVisible()
+    if curLine < scrollTop then
+        scrollTop = curLine
+    elseif curLine >= scrollTop + VIS then
+        scrollTop = curLine - VIS + 1
     end
-    if dirty then UI:SetDirty(true); self:_ensureCursorVis() end
+    if scrollTop < 1 then scrollTop = 1 end
 end
 
-function TextPad:_splitLines(text)
-    local lines={}; local s=1
-    while s <= #text+1 do
-        local nl=text:find("\n",s,true)
-        if nl then table.insert(lines,text:sub(s,nl-1)); s=nl+1
-        else table.insert(lines,text:sub(s)); break end
+---------------------------------------------------------------------------
+-- Serializa lines a string
+
+function TextPad:_serialize()
+    return table.concat(lines, "\n")
+end
+
+---------------------------------------------------------------------------
+-- Guardar
+
+function TextPad:Save()
+    if node then
+        node.data = self:_serialize()
+        dirty = false
+        SaveSystem:Save(OSConfig)
+        return true
     end
-    if #lines==0 then lines={""} end
-    return lines
+    return false
 end
 
-function TextPad:_cursorLine(text, pos)
-    local l=1; for i=1,pos do if text:sub(i,i)=="\n" then l=l+1 end end; return l
-end
+---------------------------------------------------------------------------
+-- Input de teclado — llamado desde IARG-OS cuando llega un KeyboardChipEvent
 
-function TextPad:_cursorCol(text, pos)
-    local c=0; for i=1,pos do local ch=text:sub(i,i); if ch=="\n" then c=0 else c=c+1 end end; return c
-end
-
-function TextPad:_ensureCursorVis()
-    local cl = self:_cursorLine(editText, cursor)
-    if cl < textScroll+1 then textScroll=cl-1
-    elseif cl > textScroll+VIS then textScroll=cl-VIS end
-    textScroll=math.max(0,textScroll)
-end
-
-function TextPad:_handleBack()
-    if state=="EDIT" then
+function TextPad:HandleKey(inputName, shift, ctrl)
+    -- Esc  salir
+    if inputName == "Escape" then
         if dirty then
-            UI:ShowPopup("TextPad","Guardar cambios?",{"Si","No"},function(idx)
-                if idx==1 then self:_save() end; self:_closeEditor()
-            end)
-        else self:_closeEditor() end
-    else if onClose then onClose() end end
-end
+            -- guardar automáticamente al salir
+            self:Save()
+        end
+        if _onClose then _onClose(dirty) end
+        return
+    end
 
-function TextPad:_closeEditor()
-    VirtualKeyboard:Hide(); curNode=nil; editText=""; cursor=0; dirty=false
-    state="LIST"; self:_refreshList()
-    UI:SetTaskbarCallbacks(
-        function() self:_handleBack() end,
-        function() if onClose then onClose() end end)
-end
+    -- Ctrl+S  guardar
+    if ctrl and inputName == "S" then
+        self:Save(); return
+    end
 
----------------------------------------------------------------------------
+    -- Navegación
+    if inputName == "LeftArrow" then
+        if curCol > 1 then
+            curCol = curCol - 1
+        elseif curLine > 1 then
+            curLine = curLine - 1
+            curCol  = #lines[curLine] + 1
+        end
+        self:_ensureVisible(); return
+    end
 
-function TextPad:RegisterZones()
-    if state=="LIST" then self:_regListZones()
-    else self:_regEditZones()
-        if VirtualKeyboard:IsActive() then VirtualKeyboard:RegisterZones() end
+    if inputName == "RightArrow" then
+        if curCol <= #lines[curLine] then
+            curCol = curCol + 1
+        elseif curLine < #lines then
+            curLine = curLine + 1
+            curCol  = 1
+        end
+        self:_ensureVisible(); return
+    end
+
+    if inputName == "UpArrow" then
+        if curLine > 1 then
+            curLine = curLine - 1
+            curCol  = math.min(curCol, #lines[curLine] + 1)
+        end
+        self:_ensureVisible(); return
+    end
+
+    if inputName == "DownArrow" then
+        if curLine < #lines then
+            curLine = curLine + 1
+            curCol  = math.min(curCol, #lines[curLine] + 1)
+        end
+        self:_ensureVisible(); return
+    end
+
+    if inputName == "Home" then curCol=1; return end
+    if inputName == "End"  then curCol=#lines[curLine]+1; return end
+
+    if inputName == "PageUp" then
+        curLine = math.max(1, curLine - VIS)
+        curCol  = math.min(curCol, #lines[curLine]+1)
+        self:_ensureVisible(); return
+    end
+
+    if inputName == "PageDown" then
+        curLine = math.min(#lines, curLine + VIS)
+        curCol  = math.min(curCol, #lines[curLine]+1)
+        self:_ensureVisible(); return
+    end
+
+    -- Backspace
+    if inputName == "Backspace" then
+        if curCol > 1 then
+            local l = lines[curLine]
+            lines[curLine] = l:sub(1, curCol-2) .. l:sub(curCol)
+            curCol = curCol - 1
+            dirty  = true
+        elseif curLine > 1 then
+            -- fusionar con línea anterior
+            local prev = lines[curLine-1]
+            local curr = lines[curLine]
+            curCol = #prev + 1
+            lines[curLine-1] = prev .. curr
+            table.remove(lines, curLine)
+            curLine = curLine - 1
+            dirty   = true
+        end
+        self:_ensureVisible(); return
+    end
+
+    -- Delete
+    if inputName == "Delete" then
+        local l = lines[curLine]
+        if curCol <= #l then
+            lines[curLine] = l:sub(1, curCol-1) .. l:sub(curCol+1)
+            dirty = true
+        elseif curLine < #lines then
+            lines[curLine] = l .. lines[curLine+1]
+            table.remove(lines, curLine+1)
+            dirty = true
+        end
+        return
+    end
+
+    -- Enter  nueva línea
+    if inputName == "Return" then
+        local l    = lines[curLine]
+        local before = l:sub(1, curCol-1)
+        local after  = l:sub(curCol)
+        lines[curLine] = before
+        table.insert(lines, curLine+1, after)
+        curLine = curLine + 1
+        curCol  = 1
+        dirty   = true
+        self:_ensureVisible(); return
+    end
+
+    -- Tab  4 espacios
+    if inputName == "Tab" then
+        local spaces = "    "
+        local l = lines[curLine]
+        local total = #l + 4
+        if total <= BD.TP_MAX_CHARS then
+            lines[curLine] = l:sub(1,curCol-1)..spaces..l:sub(curCol)
+            curCol = curCol + 4
+            dirty  = true
+        end
+        return
+    end
+
+    -- Carácter imprimible
+    local char = self:_inputToChar(inputName, shift)
+    if char then
+        local l = lines[curLine]
+        if #self:_serialize() < BD.TP_MAX_CHARS then
+            lines[curLine] = l:sub(1,curCol-1)..char..l:sub(curCol)
+            curCol = curCol + 1
+            dirty  = true
+        end
     end
 end
 
-function TextPad:_regListZones()
-    InputManager:Register("tp_new", BD.SW-56, HDR_Y, 54, HDR_H, {
-        onTap=function() self:_startNameInput() end
-    })
-    local vis = math.floor((FOOT_Y-LIST_Y)/ITEM_H)
-    for i=1,vis do
-        local fi=i+selIdx  -- scrollOffset reutiliza selIdx como offset aquí no, usamos 0
-        -- Nota: scroll no implementado en lista por simplicidad
-        fi = i
-        if fi>#fileList then break end
-        local iy=LIST_Y+(i-1)*ITEM_H
-        local fidx=fi
-        InputManager:Register("tp_item_"..fidx, 0, iy, BD.SW-60, ITEM_H, {
-            onTap=function() selIdx=fidx end,
-            onDoubleTap=function() selIdx=fidx; self:_openFile(fileList[fidx]) end,
-        })
+---------------------------------------------------------------------------
+-- Convierte InputName a carácter
+
+function TextPad:_inputToChar(name, shift)
+    -- Letras
+    local letters={A="a",B="b",C="c",D="d",E="e",F="f",G="g",H="h",
+        I="i",J="j",K="k",L="l",M="m",N="n",O="o",P="p",Q="q",R="r",
+        S="s",T="t",U="u",V="v",W="w",X="x",Y="y",Z="z"}
+    if letters[name] then
+        return shift and letters[name]:upper() or letters[name]
     end
-    InputManager:Register("tp_open", 4, FOOT_Y, 55, FOOT_H, {
-        onTap=function()
-            if selIdx>0 and fileList[selIdx] then self:_openFile(fileList[selIdx]) end
+    -- Números
+    local nums={Alpha0="0",Alpha1="1",Alpha2="2",Alpha3="3",Alpha4="4",
+        Alpha5="5",Alpha6="6",Alpha7="7",Alpha8="8",Alpha9="9"}
+    if nums[name] then
+        if shift then
+            local shifted={["0"]=")",["1"]="!",["2"]="@",["3"]="#",["4"]="$",
+                ["5"]="%",["6"]="^",["7"]="&",["8"]="*",["9"]="("}
+            return shifted[nums[name]] or nums[name]
         end
-    })
-    InputManager:Register("tp_del", BD.SW-58, FOOT_Y, 56, FOOT_H, {
-        onTap=function()
-            if selIdx>0 and fileList[selIdx] then
-                local n=fileList[selIdx]
-                UI:ShowPopup("Eliminar","Borrar "..n.name.."?",{"Si","No"},function(idx)
-                    if idx==1 then VFS:Delete(n); selIdx=0; self:_refreshList(); UI:SetDirty(true); SaveSystem:Save(OSConfig) end
-                end)
-            end
-        end
-    })
-end
-
-function TextPad:_regEditZones()
-    InputManager:Register("tp_save",  BD.SW-38, HDR_Y, 36, HDR_H, {onTap=function() self:_save() end})
-    InputManager:Register("tp_close", BD.SW-76, HDR_Y, 36, HDR_H, {onTap=function() self:_handleBack() end})
-    InputManager:Register("tp_area",  TA_X, TA_Y, TA_W, TA_H, {
-        onTap=function(_,pos)
-            if not VirtualKeyboard:IsActive() then
-                VirtualKeyboard:Show(function(ch) self:_handleKey(ch) end)
-            end
-            -- Mover cursor al toque
-            local lines=self:_splitLines(editText)
-            local relY=pos.y-TA_Y
-            local li=math.floor(relY/BD.CHAR_H)+1+textScroll
-            li=math.max(1,math.min(#lines,li))
-            local relX=pos.x-TA_X
-            local ci=math.floor(relX/BD.CHAR_W)
-            local newC=0
-            for i=1,li-1 do newC=newC+#(lines[i] or "")+1 end
-            newC=newC+math.min(ci,#(lines[li] or ""))
-            cursor=math.max(0,math.min(#editText,newC))
-        end,
-    })
-end
-
-function TextPad:_startNameInput()
-    waitName=true; newNameBuf=""
-    VirtualKeyboard:Show(function(ch)
-        if ch=="OK" or ch=="ENTER" then
-            waitName=false; VirtualKeyboard:Hide()
-            local n=newNameBuf:match("^%s*(.-)%s*$")
-            if n and #n>0 then self:_createNew(n) end
-        elseif ch=="DEL" then
-            if #newNameBuf>0 then newNameBuf=newNameBuf:sub(1,-2) end
-        else if #newNameBuf<20 then newNameBuf=newNameBuf..ch end end
-    end)
+        return nums[name]
+    end
+    -- Símbolos
+    local syms={Space=" ",Period=".",Comma=",",Minus="-",
+        Slash="/",Backslash="\\",Semicolon=";",Quote="'",
+        LeftBracket="[",RightBracket="]",Equals="=",BackQuote="`"}
+    if shift then
+        local shifted={Period=">",Comma="<",Minus="_",Slash="?",
+            Semicolon=":",Quote="\"",LeftBracket="{",RightBracket="}",
+            Equals="+",BackQuote="~",Backslash="|"}
+        if shifted[name] then return shifted[name] end
+    end
+    if syms[name] then return syms[name] end
+    return nil
 end
 
 ---------------------------------------------------------------------------
+-- Update (parpadeo cursor)
 
 function TextPad:Update()
-    blinkTick=blinkTick+1
-    if blinkTick >= BD.CURSOR_BLINK*2 then blinkTick=0 end
+    blinkT = blinkT + 1
+    if blinkT >= BD.CURSOR_BLINK * 2 then blinkT = 0 end
 end
+
+---------------------------------------------------------------------------
+-- Draw
 
 function TextPad:Draw()
-    Renderer:FillRect(0, BD.CONTENT_Y, BD.SW, BD.CONTENT_H, Theme.C.bg_window)
-    if state=="LIST" then self:_drawList() else self:_drawEditor() end
-end
+    if not _video or not _theme or not _font then return end
 
-function TextPad:_drawList()
-    Renderer:FillRect(0, HDR_Y, BD.SW, HDR_H, Theme.C.bg_panel)
-    Renderer:DrawLine(0, HDR_Y+HDR_H-1, BD.SW-1, HDR_Y+HDR_H-1, Theme.C.border)
-    Renderer:DrawText(4, HDR_Y+5, "TextPad", Theme.C.text_accent)
-    Renderer:DrawButton(BD.SW-56, HDR_Y+2, 54, 12, "+ Nuevo", "normal")
+    -- Fondo
+    _video:FillRect(vec2(0, BD.CONTENT_Y), vec2(BD.SW-1, BD.SH-1), _theme.bg)
 
-    local vis=math.floor((FOOT_Y-LIST_Y)/ITEM_H)
-    for i=1,vis do
-        if i>#fileList then break end
-        local n=fileList[i]; local iy=LIST_Y+(i-1)*ITEM_H
-        Renderer:DrawListItem(0, iy, BD.SW-60, ITEM_H, n.name, i==selIdx)
-        local sz=tostring(#(n.data or "")).."ch"
-        Renderer:DrawText(BD.SW-56, iy+5, sz, Theme.C.text_secondary)
-    end
-    if #fileList==0 then
-        Renderer:DrawText(60, LIST_Y+40, "Sin archivos. Crea uno!", Theme.C.text_secondary)
-    end
+    -- Header del editor
+    local fname = node and node.name or "sin titulo"
+    if dirty then fname = fname.." *" end
+    local header = "-- TextPad: "..fname.." -- [ESC=salir Ctrl+S=guardar]"
+    self:_tprint(EDIT_X, BD.CONTENT_Y+1, header, _theme.dim)
+    _video:DrawLine(vec2(0, BD.CONTENT_Y+9), vec2(BD.SW-1, BD.CONTENT_Y+9), _theme.dim)
 
-    Renderer:FillRect(0, FOOT_Y, BD.SW, FOOT_H, Theme.C.bg_panel)
-    Renderer:DrawLine(0, FOOT_Y, BD.SW-1, FOOT_Y, Theme.C.border)
-    Renderer:DrawButton(4, FOOT_Y+2, 55, 12, "Abrir",    selIdx>0 and "normal" or "disabled")
-    Renderer:DrawButton(BD.SW-58, FOOT_Y+2, 56, 12, "Eliminar", selIdx>0 and "normal" or "disabled")
+    -- Líneas visibles
+    local startY = BD.CONTENT_Y + 12
+    for i = 1, VIS do
+        local li = i + scrollTop - 1
+        if li > #lines then break end
+        local lineText = lines[li] or ""
+        local ty = startY + (i-1) * BD.CHAR_H
 
-    if waitName then
-        Renderer:FillRect(0, 142, BD.SW, 22, Theme.C.bg_window)
-        Renderer:DrawLine(0, 142, BD.SW-1, 142, Theme.C.border_focus)
-        Renderer:DrawText(4, 149, "Nombre: "..newNameBuf.."|", Theme.C.text_primary)
-        VirtualKeyboard:Draw()
-    end
-end
+        -- Número de línea (dim)
+        local numStr = string.format("%3d", li)
+        self:_tprint(EDIT_X, ty, numStr, _theme.dim)
 
-function TextPad:_drawEditor()
-    Renderer:FillRect(0, HDR_Y, BD.SW, HDR_H, Theme.C.bg_panel)
-    Renderer:DrawLine(0, HDR_Y+HDR_H-1, BD.SW-1, HDR_Y+HDR_H-1, Theme.C.border)
-    local title=(curNode and curNode.name or "sin titulo")..(dirty and " *" or "")
-    Renderer:DrawTextTrunc(4, HDR_Y+5, title, 28, Theme.C.text_accent)
-    Renderer:DrawButton(BD.SW-76, HDR_Y+2, 36, 12, "Cerrar", "normal")
-    Renderer:DrawButton(BD.SW-38, HDR_Y+2, 36, 12, "Guardar", dirty and "normal" or "disabled")
+        -- Contenido de la línea (truncado si es muy largo)
+        local displayCols = math.floor((EDIT_W - 16) / BD.CHAR_W)
+        local display = lineText
+        if #display > displayCols then display = display:sub(1, displayCols) end
+        self:_tprint(EDIT_X + 16, ty, display, _theme.text)
 
-    Renderer:FillRect(TA_X-1, TA_Y, TA_W+2, TA_H, Theme.C.bg_input)
-    Renderer:DrawRect(TA_X-1, TA_Y, TA_W+2, TA_H, Theme.C.border)
-
-    local lines = self:_splitLines(editText)
-    local cLine = self:_cursorLine(editText, cursor)
-    local cCol  = self:_cursorCol(editText, cursor)
-    local showCursor = blinkTick < BD.CURSOR_BLINK
-
-    for i=1,VIS do
-        local li=i+textScroll
-        if li>#lines then break end
-        local txt=lines[li] or ""
-        local ty=TA_Y+(i-1)*BD.CHAR_H+2
-        -- Nro de línea
-        Renderer:DrawText(2, ty, tostring(li), Theme.C.text_secondary)
-        -- Texto de la línea
-        Renderer:DrawText(TA_X, ty, txt, Theme.C.text_primary)
         -- Cursor
-        if showCursor and li==cLine then
-            local cx=TA_X+cCol*BD.CHAR_W
-            Renderer:DrawLine(cx, ty, cx, ty+BD.CHAR_H-1, Theme.C.accent)
+        if li == curLine and blinkT < BD.CURSOR_BLINK then
+            local cx = EDIT_X + 16 + (curCol-1) * BD.CHAR_W
+            _video:DrawLine(vec2(cx, ty), vec2(cx, ty+BD.CHAR_H-1), _theme.cursor)
         end
     end
 
-    local cnt=tostring(#editText).."/"..tostring(BD.TP_MAX_CHARS)
-    Renderer:DrawText(BD.SW-Renderer:TextWidth(cnt)-4, TA_Y+TA_H-10, cnt, Theme.C.text_secondary)
-
-    if VirtualKeyboard:IsActive() then VirtualKeyboard:Draw() end
+    -- Barra de estado abajo
+    local statY = BD.SH - BD.CHAR_H - 2
+    _video:FillRect(vec2(0, statY-1), vec2(BD.SW-1, BD.SH-1), _theme.topbar)
+    local stat = "Ln "..curLine.."/"..#lines.."  Col "..curCol
+              .."  ["..#self:_serialize().."/"..BD.TP_MAX_CHARS.." ch]"
+    self:_tprint(EDIT_X, statY, stat, _theme.dim)
 end
+
+---------------------------------------------------------------------------
+-- tprint local
+
+function TextPad:_tprint(x, y, txt, col)
+    if not _font then return end
+    for i=1,#txt do
+        local ch=txt:sub(i,i)
+        _video:DrawSprite(vec2(x+(i-1)*BD.CHAR_W, y), _font,
+            ch:byte()%32, math.floor(ch:byte()/32), col, color.clear)
+    end
+end
+
+---------------------------------------------------------------------------
 
 return TextPad
