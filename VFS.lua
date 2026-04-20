@@ -5,7 +5,6 @@
 -- BD is a global loaded by IARG-OS.lua
 VFS = {}
 
-local BD         = require("BD.lua")
 
 local root    = nil
 local nodeMap = {}

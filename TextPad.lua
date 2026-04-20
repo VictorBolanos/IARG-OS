@@ -7,9 +7,7 @@
 -- BD, VFS, SaveSystem are globals loaded by IARG-OS.lua
 
 TextPad = {}
-local Utils = require("Utils.lua")
 
-local BD         = require("BD.lua")
 
 local _video   = nil
 local _font    = nil

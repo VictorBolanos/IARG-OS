@@ -11,7 +11,7 @@ BD.SH        = 160  -- real screen height (video.Height)
 BD.TOPBAR_H  = 12
 BD.TOPBAR_Y  = 0
 BD.CONTENT_Y = 12
-BD.CONTENT_H = 212
+BD.CONTENT_H = 148   -- real content height (160 - 12px topbar)
 
 -- FONT -- fontPrincipal.png uses 4x7 px per character (Tprint)
 BD.CHAR_W = 4

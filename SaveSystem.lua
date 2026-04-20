@@ -26,6 +26,23 @@ function SaveSystem:Load()
     return data.config
 end
 
+function SaveSystem:SaveHighScores(highScores)
+    if not flash then return false end
+    local data = flash:Load()
+    if not data or data.version ~= BD.SAVE_VERSION then
+        data = { version = BD.SAVE_VERSION }
+    end
+    data.highScores = highScores
+    return flash:Save(data)
+end
+
+function SaveSystem:LoadHighScores()
+    if not self:HasData() then return {} end
+    local data = flash:Load()
+    if not data or data.version ~= BD.SAVE_VERSION then return {} end
+    return data.highScores or {}
+end
+
 ---------------------------------------------------------------------------
 
 return SaveSystem

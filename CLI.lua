@@ -346,13 +346,16 @@ function CLI:_execute(cmdStr)
             self:_out("Usage: game <name>", _theme.error)
             self:_out("Available games:", _theme.success)
             self:_out("  tetris", _theme.output)
+            self:_out("  chess", _theme.output)
         else
             local name = arg1:lower()
             if name == "tetris" then
                 if _onLaunch then _onLaunch("Tetris", nil) end
+            elseif name == "chess" then
+                if _onLaunch then _onLaunch("Chess", nil) end
             else
                 self:_out("Unknown game: " .. arg1, _theme.error)
-                self:_out("Available: tetris", _theme.dim)
+                self:_out("Available: tetris, chess", _theme.dim)
             end
         end
 

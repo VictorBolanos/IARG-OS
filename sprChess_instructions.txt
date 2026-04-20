@@ -1,0 +1,37 @@
+SPRITESHEET INSTRUCTIONS FOR sprChess.png
+=========================================
+
+FORMAT:
+- Single row spritesheet
+- Each sprite: 16x16 pixels
+- Total: 12 sprites in one row
+- File: sprChess.png
+
+SPRITE ORDER (columns 0 to 11):
+0: Black Pawn (Peón negro)    - 0,0
+1: Black Knight (Caballo negro) - 16,0  
+2: Black Bishop (Alfil negro) - 32,0
+3: Black Rook (Torre negra)   - 48,0
+4: Black Queen (Reina negra)  - 64,0
+5: Black King (Rey negro)     - 80,0
+6: White Pawn (Peón blanco)   - 96,0
+7: White Knight (Caballo blanco) - 112,0
+8: White Bishop (Alfil blanco) - 128,0
+9: White Rook (Torre blanca)   - 144,0
+10: White Queen (Reina blanca)  - 160,0
+11: White King (Rey blanco)    - 176,0
+
+CHESS PIECES DESIGN:
+- Use traditional chess piece silhouettes
+- Black pieces: dark outlines, black fill
+- White pieces: dark outlines, white/transparent fill
+- Size: fit within 16x16 pixels
+- Style: clear, recognizable chess symbols
+
+PLACEMENT:
+- Save as: sprChess.png
+- Location: ROM/User/SpriteSheets/sprChess.png
+- Make sure pieces are centered in their 16x16 cells
+
+The game will automatically load this spritesheet and display
+the pieces instead of text letters.

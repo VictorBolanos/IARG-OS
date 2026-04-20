@@ -198,5 +198,26 @@ function Utils:WrapText(txt, maxW)
 end
 
 ---------------------------------------------------------------------------
+-- DrawSprite-based text print (single line, uses custom font)
+-- Used by CLI, TextPad, AIChat, Topbar via their local tp wrappers
+
+function Utils:DrawText(video, font, x, y, txt, col)
+    if not font or not video then return end
+    for i = 1, #txt do
+        local ch = txt:sub(i, i)
+        local bv = ch:byte()
+        local sx, sy
+        -- Special chars 127-130 use custom sprite positions
+        if bv == 127 then sx, sy = 31, 3
+        elseif bv == 128 then sx, sy = 0, 4
+        elseif bv == 129 then sx, sy = 1, 4
+        elseif bv == 130 then sx, sy = 2, 4
+        else sx = bv % 32; sy = math.floor(bv / 32)
+        end
+        video:DrawSprite(vec2(x + (i-1)*BD.CHAR_W, y), font, sx, sy, col, color.clear)
+    end
+end
+
+---------------------------------------------------------------------------
 
 return Utils

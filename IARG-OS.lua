@@ -8,10 +8,11 @@
 --   ROM           -- assets
 --   RealityChip0  -- real-time clock
 --   KeyboardChip0 -- keyboard (CPU0 EventChannel1)
+--   Mouse0        -- mouse (CPU0 EventChannel3)
 --   AudioChip0    -- audio (optional)
 --
 -- CODE ASSETS (.lua):
---   BD.lua, VFS.lua, SaveSystem.lua, Topbar.lua, CLI.lua, TextPad.lua
+--   BD.lua, VFS.lua, SaveSystem.lua, Topbar.lua, CLI.lua, TextPad.lua, Chess.lua
 --
 -- ASSETS SPRITESHEET (.png):
 --   fontPrincipal.png  -- text font 4x7 px (Tprint)
@@ -31,6 +32,7 @@ CLI         = require("CLI.lua")
 TextPad     = require("TextPad.lua")
 AIChat      = require("AIChat.lua")
 Tetris      = require("Tetris.lua")
+Chess       = require("Chess.lua")
 
 -- Hardware
 local video    = gdt.VideoChip0
@@ -39,6 +41,8 @@ local rom      = gdt.ROM
 local reality  = gdt.RealityChip
 local keyboard = gdt.KeyboardChip0
 local wifi      = gdt.Wifi0
+local mouse     = nil
+pcall(function() mouse = gdt.Mouse0 end)
 local audioChip = nil
 pcall(function() audioChip = gdt.AudioChip0 end)
 
@@ -224,6 +228,13 @@ local function initOS()
                 activeApp = nil
                 CLI:_out("Tetris closed.", (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).dim)
             end)
+        elseif app == "Chess" then
+            activeApp = "chess"
+            local t = BD.THEMES[OSConfig.theme] or BD.THEMES[0]
+            Chess:Init(video, font, t, function()
+                activeApp = nil
+                CLI:_out("Chess closed.", (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).dim)
+            end)
         elseif app == "__theme__" then
             local nt = BD.THEMES[data] or BD.THEMES[0]
             Topbar:SetTheme(nt)
@@ -265,6 +276,8 @@ function eventChannel1(sender, event)
             AIChat:HandleKey(name, _shiftHeld, _ctrlHeld)
         elseif activeApp == "tetris" then
             Tetris:HandleKey(name, _shiftHeld, _ctrlHeld)
+        elseif activeApp == "chess" then
+            Chess:HandleKey(name, _shiftHeld, _ctrlHeld)
         else
             CLI:HandleKey(name, _shiftHeld, _ctrlHeld)
         end
@@ -284,6 +297,19 @@ function eventChannel2(sender, event)
     if event.Type ~= "WifiWebResponseEvent" then return end
     if activeApp == "aichat" then
         AIChat:HandleWifiEvent(event)
+    end
+end
+
+---------------------------------------------------------------------------
+-- EventChannel3 -- Mouse0 connected to CPU0 EventChannel 3
+
+function eventChannel3(sender, event)
+    if not osReady then return end
+    if not mouse then return end
+    if event.Type ~= "MouseEvent" then return end
+    
+    if activeApp == "chess" then
+        Chess:HandleMouse(event.Button, event.X, event.Y, event.ButtonDown)
     end
 end
 
@@ -309,6 +335,8 @@ function update()
         AIChat:Update()
     elseif activeApp == "tetris" then
         Tetris:Update()
+    elseif activeApp == "chess" then
+        Chess:Update()
     else
         CLI:Update()
     end
@@ -327,6 +355,8 @@ function update()
         AIChat:Draw()
     elseif activeApp == "tetris" then
         Tetris:Draw()
+    elseif activeApp == "chess" then
+        Chess:Draw()
     else
         CLI:Draw()
     end

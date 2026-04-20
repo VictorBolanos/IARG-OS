@@ -16,12 +16,15 @@ local BLOCK     = 7       -- px per cell
 local BOARD_W   = 10      -- columns
 local BOARD_H   = 20      -- rows
 
--- Board position (centered horizontally, topbar-aware)
-local BX        = 133     -- board left pixel
+-- High scores (left side)
+local HX        = 4       -- high scores X position
+
+-- Board position (centered horizontally, topbar-aware, moved right for high scores)
+local BX        = 209     -- board left pixel (moved right to make space)
 local BY        = 16      -- board top pixel (BD.CONTENT_Y + 4)
 
 -- Sidebar
-local SX        = BX + BOARD_W * BLOCK + 6   -- 209
+local SX        = BX + BOARD_W * BLOCK + 6   -- 323
 
 ---------------------------------------------------------------------------
 -- Tetrominoes: each piece = list of {row,col} offsets from pivot
@@ -116,7 +119,9 @@ local score     = 0
 local lines     = 0
 local level     = 1
 local gameOver  = false
+local highScores = {}  -- Top 10 high scores
 local paused    = false
+local scoreSaved = false -- Track if current score has been saved
 
 local dropTimer    = 0
 local dropInterval = 48   -- ticks between auto-drops (decreases with level)
@@ -267,6 +272,59 @@ local function drawSmallBlock(px, py, col)
 end
 
 ---------------------------------------------------------------------------
+-- High Scores Management
+
+local function loadHighScores()
+    if SaveSystem and SaveSystem.LoadHighScores then
+        local saved = SaveSystem:LoadHighScores()
+        if saved and type(saved) == "table" then
+            highScores = saved
+        else
+            -- Initialize with empty scores if none exist
+            highScores = {}
+        end
+    else
+        highScores = {}
+    end
+end
+
+local function saveHighScores()
+    if SaveSystem and SaveSystem.SaveHighScores then
+        SaveSystem:SaveHighScores(highScores)
+    end
+end
+
+local function addHighScore(newScore)
+    if newScore > 0 then
+        -- Get current date from RealityChip0
+        local currentDate = "2024-01-01"  -- Default fallback
+        if gdt and gdt.RealityChip and gdt.RealityChip.GetDate then
+            local dateData = gdt.RealityChip:GetDate()
+            if dateData and dateData.Year and dateData.Month and dateData.Day then
+                currentDate = string.format("%04d-%02d-%02d", dateData.Year, dateData.Month, dateData.Day)
+            end
+        end
+        
+        table.insert(highScores, {
+            score = newScore,
+            lines = lines,
+            level = level,
+            date = currentDate
+        })
+        
+        -- Sort by score (highest first)
+        table.sort(highScores, function(a, b) return a.score > b.score end)
+        
+        -- Keep only top 10
+        while #highScores > 10 do
+            table.remove(highScores, #highScores)
+        end
+        
+        saveHighScores()
+    end
+end
+
+---------------------------------------------------------------------------
 -- Init
 
 function Tetris:Init(video, font, theme, onClose)
@@ -281,12 +339,16 @@ function Tetris:Init(video, font, theme, onClose)
         COLORS[i] = Color(d[1], d[2], d[3])
     end
 
+    -- Load high scores
+    loadHighScores()
+
     board     = newBoard()
     score     = 0
     lines     = 0
     level     = 1
     gameOver  = false
     paused    = false
+    scoreSaved = false  -- Reset score saved flag
     holdPiece = nil
     canHold   = true
     dropTimer    = 0
@@ -317,6 +379,7 @@ function Tetris:HandleKey(name, shift, ctrl)
         level     = 1
         gameOver  = false
         paused    = false
+        scoreSaved = false  -- Reset score saved flag for new game
         holdPiece = nil
         canHold   = true
         dropTimer    = 0
@@ -405,6 +468,25 @@ function Tetris:Draw()
     -- Background
     _video:FillRect(vec2(0, BD.CONTENT_Y), vec2(sw-1, sh-1), _theme.bg)
 
+    -- High Scores (left side)
+    tp(HX, BY, "TOP 10", _theme.success)
+    local hy = BY + 12
+    for i = 1, math.min(10, #highScores) do
+        local hs = highScores[i]
+        local rank = tostring(i) .. "."
+        local scoreText = string.format("%06d", hs.score)
+        local color = _theme.text
+        
+        -- Highlight current score if it's in the top 10
+        if hs.score == score and not gameOver then
+            color = _theme.success
+        end
+        
+        tp(HX, hy, rank, _theme.dim)
+        tp(HX + 18, hy, scoreText, color)
+        hy = hy + 8
+    end
+    
     -- Board border
     _video:DrawRect(
         vec2(BX-1, BY-1),
@@ -515,8 +597,14 @@ function Tetris:Draw()
 
     -- Game over overlay
     if gameOver then
+        -- Save high score only once when game ends
+        if score > 0 and not scoreSaved then
+            addHighScore(score)
+            scoreSaved = true
+        end
+        
         local ox = BX + 2
-        local oy = BY + BOARD_H*BLOCK//2 - 16
+        local oy = BY + math.floor(BOARD_H*BLOCK/2) - 16
         _video:FillRect(vec2(ox-2, oy-2), vec2(ox + 64, oy+24), Color(8,8,18))
         _video:DrawRect(vec2(ox-2, oy-2), vec2(ox + 64, oy+24), _theme.error)
         tp(ox, oy,    "GAME OVER", _theme.error)
@@ -526,7 +614,7 @@ function Tetris:Draw()
     -- Paused overlay
     if paused then
         local ox = BX + 8
-        local oy = BY + BOARD_H*BLOCK//2 - 6
+        local oy = BY + math.floor(BOARD_H*BLOCK/2) - 6
         _video:FillRect(vec2(ox-2, oy-2), vec2(ox + 52, oy+14), Color(8,8,18))
         _video:DrawRect(vec2(ox-2, oy-2), vec2(ox + 52, oy+14), _theme.prompt)
         tp(ox, oy, "  PAUSED", _theme.prompt)
