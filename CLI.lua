@@ -20,7 +20,6 @@
 -- BD, VFS, SaveSystem are globals loaded by IARG-OS.lua
 
 CLI = {}
-local Utils = require("Utils.lua")
 
 local _video    = nil
 local _font     = nil
@@ -171,7 +170,9 @@ function CLI:_execute(cmdStr)
         self:_out("  cat <name>         Print file contents", _theme.output)
         self:_out("  run TextPad [file] Open text editor", _theme.output)
         self:_out("  run AI             Open AI chat", _theme.output)
+        self:_out("  game <n>        Launch a game", _theme.output)
         self:_out("  theme <0-9>        Change visual theme", _theme.output)
+        self:_out("  sound <test>       Test sound system", _theme.output)
         self:_out("  help               Show this help", _theme.output)
         self:_out("  clear              Clear screen", _theme.output)
         self:_out("Spanish characters (substitutes):", _theme.success)
@@ -340,6 +341,21 @@ function CLI:_execute(cmdStr)
             self:_out("Available apps: TextPad, AI", _theme.dim)
         end
 
+    elseif cmd == "game" then
+        if not arg1 then
+            self:_out("Usage: game <name>", _theme.error)
+            self:_out("Available games:", _theme.success)
+            self:_out("  tetris", _theme.output)
+        else
+            local name = arg1:lower()
+            if name == "tetris" then
+                if _onLaunch then _onLaunch("Tetris", nil) end
+            else
+                self:_out("Unknown game: " .. arg1, _theme.error)
+                self:_out("Available: tetris", _theme.dim)
+            end
+        end
+
     elseif cmd == "theme" then
         if not arg1 then
             self:_out("Usage: theme <0-9>", _theme.error)
@@ -359,6 +375,66 @@ function CLI:_execute(cmdStr)
                 SaveSystem:Save(OSConfig)
                 self:_out("Theme applied: " .. n, _theme.success)
                 if _onLaunch then _onLaunch("__theme__", n) end
+            end
+        end
+
+    elseif cmd == "sound" then
+        if not arg1 then
+            self:_out("Sound System Test", _theme.success)
+            self:_out("Usage: sound <test|boot|error|success>", _theme.output)
+            self:_out("  test    - Play a test tone (440Hz for 500ms)", _theme.output)
+            self:_out("  boot    - Play boot sound (AudioSample if available, else melody)", _theme.output)
+            self:_out("  error   - Play error sound", _theme.output)
+            self:_out("  success - Play success sound", _theme.output)
+            self:_out("  stop    - Stop all sounds", _theme.output)
+            if SoundSystem and SoundSystem:IsInitialized() then
+                self:_out("Status: Initialized", _theme.success)
+                self:_out("Volume: " .. math.floor(SoundSystem:GetVolume() * 100) .. "%", _theme.output)
+                if SoundSystem:IsPlayingAudioSample() then
+                    local sample = SoundSystem:GetCurrentAudioSample()
+                    local channel = SoundSystem:GetCurrentChannel()
+                    self:_out("Currently playing: " .. (sample and sample.Name or "Unknown") .. " on channel " .. channel, _theme.output)
+                elseif SoundSystem:IsPlayingMelody() then
+                    self:_out("Currently playing: Melody", _theme.output)
+                end
+            else
+                self:_out("Status: Not initialized", _theme.error)
+            end
+        else
+            local action = arg1:lower()
+            if SoundSystem and SoundSystem:IsInitialized() then
+                if action == "test" then
+                    SoundSystem:PlayTone(440, 500)
+                    self:_out("Playing test tone (440Hz)", _theme.success)
+                elseif action == "boot" then
+                    -- Try to load boot AudioSample from ROM first
+                    local rom = gdt.ROM
+                    local bootAudioSample = nil
+                    if rom and rom.User and rom.User.AudioSamples then
+                        bootAudioSample = rom.User.AudioSamples[SoundSystem.BOOT_AUDIO_SAMPLE]
+                    end
+                    
+                    if bootAudioSample then
+                        SoundSystem:PlayWav(bootAudioSample, false)
+                        self:_out("Playing boot sound (AudioSample: " .. bootAudioSample.Name .. ")", _theme.success)
+                    else
+                        SoundSystem:PlayMelody(SoundSystem.BOOT_MELODY, false)
+                        self:_out("Playing boot melody (AudioSample not found)", _theme.success)
+                    end
+                elseif action == "error" then
+                    SoundSystem:PlayMelody(SoundSystem.ERROR_MELODY, false)
+                    self:_out("Playing error sound", _theme.error)
+                elseif action == "success" then
+                    SoundSystem:PlayMelody(SoundSystem.SUCCESS_MELODY, false)
+                    self:_out("Playing success sound", _theme.success)
+                elseif action == "stop" then
+                    SoundSystem:Stop()
+                    self:_out("Sound stopped", _theme.dim)
+                else
+                    self:_out("Unknown sound action: " .. action, _theme.error)
+                end
+            else
+                self:_out("Sound system not available", _theme.error)
             end
         end
 

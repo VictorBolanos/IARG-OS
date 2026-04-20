@@ -8,6 +8,7 @@
 --   ROM           -- assets
 --   RealityChip0  -- real-time clock
 --   KeyboardChip0 -- keyboard (CPU0 EventChannel1)
+--   AudioChip0    -- audio (optional)
 --
 -- CODE ASSETS (.lua):
 --   BD.lua, VFS.lua, SaveSystem.lua, Topbar.lua, CLI.lua, TextPad.lua
@@ -20,13 +21,16 @@
 
 -- Root-level requires
 -- Load all modules as globals so they are visible to each other
-BD         = require("BD.lua")
-VFS        = require("VFS.lua")
-SaveSystem = require("SaveSystem.lua")
-Topbar     = require("Topbar.lua")
-CLI        = require("CLI.lua")
-TextPad    = require("TextPad.lua")
-AIChat     = require("AIChat.lua")
+BD          = require("BD.lua")
+Utils       = require("Utils.lua")
+VFS         = require("VFS.lua")
+SaveSystem  = require("SaveSystem.lua")
+SoundSystem = require("SoundSystem.lua")
+Topbar      = require("Topbar.lua")
+CLI         = require("CLI.lua")
+TextPad     = require("TextPad.lua")
+AIChat      = require("AIChat.lua")
+Tetris      = require("Tetris.lua")
 
 -- Hardware
 local video    = gdt.VideoChip0
@@ -34,7 +38,9 @@ local flash    = gdt.FlashMemory0
 local rom      = gdt.ROM
 local reality  = gdt.RealityChip
 local keyboard = gdt.KeyboardChip0
-local wifi     = gdt.Wifi0
+local wifi      = gdt.Wifi0
+local audioChip = nil
+pcall(function() audioChip = gdt.AudioChip0 end)
 
 -- Sprites -- safe load with pcall
 local font    = nil
@@ -118,6 +124,12 @@ local function drawBoot()
     bootTick = bootTick + 1
     local t  = bootTick
     video:Clear(color.black)
+
+    -- Play boot sound on first tick
+    if t == 1 then
+        SoundSystem:Init(audioChip)
+        SoundSystem:PlayBoot(rom)
+    end
 
     if t <= BD.BOOT_BLACK_END then return end
 
@@ -205,6 +217,13 @@ local function initOS()
                 activeApp = nil
                 CLI:_out("AIChat closed.", (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).dim)
             end)
+        elseif app == "Tetris" then
+            activeApp = "tetris"
+            local t = BD.THEMES[OSConfig.theme] or BD.THEMES[0]
+            Tetris:Init(video, font, t, function()
+                activeApp = nil
+                CLI:_out("Tetris closed.", (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).dim)
+            end)
         elseif app == "__theme__" then
             local nt = BD.THEMES[data] or BD.THEMES[0]
             Topbar:SetTheme(nt)
@@ -223,7 +242,6 @@ local _shiftHeld = false
 local _ctrlHeld  = false
 
 function eventChannel1(sender, event)
-    log("KEY: " .. name)
     if not osReady then return end
     if event.Type ~= "KeyboardChipEvent" then return end
 
@@ -245,6 +263,8 @@ function eventChannel1(sender, event)
             TextPad:HandleKey(name, _shiftHeld, _ctrlHeld)
         elseif activeApp == "aichat" then
             AIChat:HandleKey(name, _shiftHeld, _ctrlHeld)
+        elseif activeApp == "tetris" then
+            Tetris:HandleKey(name, _shiftHeld, _ctrlHeld)
         else
             CLI:HandleKey(name, _shiftHeld, _ctrlHeld)
         end
@@ -282,10 +302,13 @@ function update()
     end
 
     -- Logic
+    SoundSystem:Update()
     if activeApp == "textpad" then
         TextPad:Update()
     elseif activeApp == "aichat" then
         AIChat:Update()
+    elseif activeApp == "tetris" then
+        Tetris:Update()
     else
         CLI:Update()
     end
@@ -302,6 +325,8 @@ function update()
         TextPad:Draw()
     elseif activeApp == "aichat" then
         AIChat:Draw()
+    elseif activeApp == "tetris" then
+        Tetris:Draw()
     else
         CLI:Draw()
     end
