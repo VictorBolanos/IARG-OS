@@ -2,8 +2,10 @@
 -- VFS.lua -- Virtual File System
 ---------------------------------------------------------------------------
 
-local BD = require("BD.lua")
+-- BD is a global loaded by IARG-OS.lua
 VFS = {}
+
+local BD         = require("BD.lua")
 
 local root    = nil
 local nodeMap = {}

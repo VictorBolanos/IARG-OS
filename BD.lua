@@ -56,6 +56,7 @@ BD.VFS_MAX_NODES = 80
 BD.NT_FOLDER = "folder"
 BD.NT_APP    = "app"
 BD.NT_TXT    = "txt"
+BD.NT_CFG    = "cfg"   -- config file type (.cfg), editable with TextPad
 
 -- SAVE
 BD.SAVE_VERSION = 2
@@ -87,6 +88,48 @@ BD.THEME_DATA = {
         output={40,40,80}, error={200,0,0},   success={0,140,0},
         dim={140,140,160}, topbar={200,210,220}, tbtext={0,80,180},
         tbclock={40,40,80}, cursor={0,80,180},
+    },
+    -- 4: Blood Red -- deep black, crimson text, brutalist feel
+    [4] = { name="Blood Red",
+        bg={8,0,0},       text={220,40,40},   prompt={255,80,80},
+        output={180,30,30}, error={255,200,0}, success={255,120,0},
+        dim={100,20,20},  topbar={4,0,0},     tbtext={255,60,60},
+        tbclock={200,40,40}, cursor={255,100,100},
+    },
+    -- 5: Red Matrix -- like Green Matrix but in deep red
+    [5] = { name="Red Matrix",
+        bg={10,0,0},      text={220,0,0},     prompt={255,60,60},
+        output={180,0,0}, error={255,200,50},  success={255,120,0},
+        dim={80,0,0},     topbar={6,0,0},     tbtext={255,40,40},
+        tbclock={180,0,0}, cursor={255,80,80},
+    },
+    -- 6: Synthwave -- 80s purple/pink neon on dark navy
+    [6] = { name="Synthwave",
+        bg={10,5,20},     text={220,180,255}, prompt={255,80,220},
+        output={180,130,255}, error={255,60,100}, success={80,255,200},
+        dim={80,50,120},  topbar={6,3,14},    tbtext={255,80,220},
+        tbclock={180,130,255}, cursor={255,80,220},
+    },
+    -- 7: Hacker Gold -- NSA terminal, black on gold
+    [7] = { name="Hacker Gold",
+        bg={5,4,0},       text={255,210,0},   prompt={255,240,80},
+        output={200,160,0}, error={255,80,0},  success={150,255,80},
+        dim={100,80,0},   topbar={3,2,0},     tbtext={255,220,30},
+        tbclock={200,170,0}, cursor={255,240,80},
+    },
+    -- 8: Ocean Depth -- dark teal, bioluminescent feel
+    [8] = { name="Ocean Depth",
+        bg={0,12,18},     text={80,220,200},  prompt={0,255,220},
+        output={60,180,160}, error={255,80,100}, success={100,255,180},
+        dim={0,80,80},    topbar={0,7,12},    tbtext={0,200,180},
+        tbclock={60,180,160}, cursor={0,255,220},
+    },
+    -- 9: Void -- near-black on near-black, ultra minimal
+    [9] = { name="Void",
+        bg={4,4,4},       text={130,130,130}, prompt={180,180,180},
+        output={100,100,100}, error={200,60,60}, success={80,180,80},
+        dim={50,50,50},   topbar={2,2,2},     tbtext={150,150,150},
+        tbclock={100,100,100}, cursor={200,200,200},
     },
 }
 

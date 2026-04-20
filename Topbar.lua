@@ -5,13 +5,13 @@
 --   sprOsLogoSmall.png   24x12 px, full image (no grid)
 --                          drawn with DrawCustomSprite at actual size
 --   sprSystem.png        9x9 px sprites in grid:
---     sx=0, sy=0   Reloj
+--     sx=0, sy=0   Clock
 --     sx=0, sy=1   Small folder
---     sx=1, sy=1   Archivo de texto
+--     sx=1, sy=1   Text file
 --     (additional rows/cols reserved)
 ---------------------------------------------------------------------------
 
-local BD = require("BD.lua")
+-- BD is a global loaded by IARG-OS.lua
 
 Topbar = {}
 
@@ -76,7 +76,7 @@ function Topbar:Draw(cwd)
         _video:DrawCustomSprite(
             vec2(logoX, logoY),
             _sprLogo,
-            vec2(0, 0),           -- offset dentro del sprite
+            vec2(0, 0),           -- offset within sprite
             vec2(LOGO_W, LOGO_H), -- draw size
             color.white,
             color.clear)

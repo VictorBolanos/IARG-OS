@@ -4,10 +4,10 @@
 -- Internal: Esc=exit, Ctrl+S=save (implementado via LedButton)
 ---------------------------------------------------------------------------
 
-local BD = require("BD.lua")
-local SaveSystem = require("SaveSystem.lua")
-local VFS = require("VFS.lua")
+-- BD, SaveSystem, VFS are globals loaded by IARG-OS.lua
 TextPad = {}
+
+local BD         = require("BD.lua")
 
 local _video   = nil
 local _font    = nil
@@ -31,6 +31,28 @@ local VIS     = nil
 local MAXCOLS = nil
 
 ---------------------------------------------------------------------------
+
+---------------------------------------------------------------------------
+-- Convert UTF-8 special chars to custom font sprite bytes
+
+local function fixEncoding(s)
+    s = s:gsub("\195\177", "\128")
+    s = s:gsub("\195\145", "\127")
+    s = s:gsub("\194\191", "\129")
+    s = s:gsub("\194\161", "\130")
+    s = s:gsub("\195\161", "a")
+    s = s:gsub("\195\169", "e")
+    s = s:gsub("\195\173", "i")
+    s = s:gsub("\195\179", "o")
+    s = s:gsub("\195\186", "u")
+    s = s:gsub("\195\129", "A")
+    s = s:gsub("\195\137", "E")
+    s = s:gsub("\195\141", "I")
+    s = s:gsub("\195\147", "O")
+    s = s:gsub("\195\154", "U")
+    s = s:gsub("\195\188", "u")
+    return s
+end
 
 function TextPad:Init(videoChip, font, themeData, fileNode, currentDir, onCloseCb)
     _video      = videoChip
@@ -468,6 +490,34 @@ end
 -- Convert InputName to printable character
 
 function TextPad:_inputToChar(name, shift)
+    -- Spanish character substitutes (same as CLI for consistency)
+    local spanishSubs = {
+        -- ñ/Ñ (most common Spanish characters)
+        Tilde = "ñ",      -- Shift + ~ (easy to find)
+        Caret = "Ñ",      -- Shift + ^ (alternative)
+        
+        -- Vocales con tilde (using nearby keys)
+        LeftBracket = "á",  -- Shift + [ (near 'a')
+        LeftCurlyBracket = "Á", -- Shift + { (capital á)
+        Semicolon = "é",   -- Shift + ; (near 'e')
+        Colon = "É",       -- Shift + : (capital é)
+        Quote = "í",       -- Shift + ' (near 'i')
+        DoubleQuote = "Í",  -- Shift + " (capital í)
+        Comma = "ó",       -- Shift + , (near 'o')
+        Less = "Ó",        -- Shift + < (capital ó)
+        Period = "ú",      -- Shift + . (near 'u')
+        Greater = "Ú",      -- Shift + > (capital ú)
+        
+        -- Signos españoles
+        Question = "¿",    -- Shift + ? (opening question mark)
+        Exclaim = "¡",     -- Shift + ! (inverted exclamation)
+    }
+    
+    -- Check Spanish substitutes first (highest priority)
+    if spanishSubs[name] then
+        return spanishSubs[name]
+    end
+    
     -- Letters A-Z
     local letters = {
         A="a",B="b",C="c",D="d",E="e",F="f",G="g",H="h",I="i",J="j",
@@ -477,6 +527,7 @@ function TextPad:_inputToChar(name, shift)
     if letters[name] then
         return shift and name or letters[name]
     end
+
     -- Numbers
     local nums = {
         Alpha0="0",Alpha1="1",Alpha2="2",Alpha3="3",Alpha4="4",
@@ -485,11 +536,15 @@ function TextPad:_inputToChar(name, shift)
         Keypad5="5",Keypad6="6",Keypad7="7",Keypad8="8",Keypad9="9",
     }
     if nums[name] then return nums[name] end
-    -- Symbols con InputName propio (doc oficial)
+    -- Shift+Minus = "_" on keyboards where Underscore is not a separate key
+    if name == "Minus" and shift then return "_" end
+
+
+    -- Symbols with dedicated InputName (official docs)
     local direct = {
         Space=" ", Period=".", Comma=",", Minus="-", Slash="/",
         Backslash="\\", Semicolon=";", Quote="'", Equals="=",
-        LeftBracket="[", RightBracket="]", BackQuote="`",
+        LeftBracket="[", RightBracket="]", BackQuote="\128",  -- ñ
         Exclaim="!", DoubleQuote='"', Hash="#", Dollar="$",
         Percent="%", Ampersand="&", LeftParen="(", RightParen=")",
         Asterisk="*", Plus="+", Colon=":", Less="<", Greater=">",
@@ -569,7 +624,7 @@ function TextPad:Draw()
     for i = 1, VIS do
         local li = i + scrollTop - 1
         if li > #lines then break end
-        local lineText = lines[li] or ""
+        local lineText = fixEncoding(lines[li] or "")
         local ty = startY + (i-1) * BD.CHAR_H
 
         -- Line number (dim)

@@ -2,8 +2,7 @@
 -- SaveSystem.lua -- FlashMemory persistence
 ---------------------------------------------------------------------------
 
-local BD = require("BD.lua")
-local VFS = require("VFS.lua")
+-- BD, VFS are globals loaded by IARG-OS.lua
 SaveSystem = {}
 local flash = nil
 

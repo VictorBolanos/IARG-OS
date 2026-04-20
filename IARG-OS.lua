@@ -19,12 +19,14 @@
 ---------------------------------------------------------------------------
 
 -- Root-level requires
-local BD         = require("BD.lua")
-local VFS        = require("VFS.lua")
-local SaveSystem = require("SaveSystem.lua")
-local Topbar     = require("Topbar.lua")
-local CLI        = require("CLI.lua")
-local TextPad    = require("TextPad.lua")
+-- Load all modules as globals so they are visible to each other
+BD         = require("BD.lua")
+VFS        = require("VFS.lua")
+SaveSystem = require("SaveSystem.lua")
+Topbar     = require("Topbar.lua")
+CLI        = require("CLI.lua")
+TextPad    = require("TextPad.lua")
+AIChat     = require("AIChat.lua")
 
 -- Hardware
 local video    = gdt.VideoChip0
@@ -32,6 +34,7 @@ local flash    = gdt.FlashMemory0
 local rom      = gdt.ROM
 local reality  = gdt.RealityChip
 local keyboard = gdt.KeyboardChip0
+local wifi     = gdt.Wifi0
 
 -- Sprites -- safe load with pcall
 local font    = nil
@@ -54,7 +57,7 @@ end
 
 -- Global OS state
 OSConfig  = { username = "user", theme = 0 }
-activeApp = nil   -- nil = CLI active, "textpad" = editor open
+activeApp = nil   -- nil = CLI, "textpad", "aichat"
 
 -- Lifecycle flags
 local bootTick = 0
@@ -195,6 +198,13 @@ local function initOS()
                 CLI:_out("TextPad closed.",
                     (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).dim)
             end)
+        elseif app == "AIChat" then
+            activeApp = "aichat"
+            local t = BD.THEMES[OSConfig.theme] or BD.THEMES[0]
+            AIChat:Init(video, font, t, wifi, function()
+                activeApp = nil
+                CLI:_out("AIChat closed.", (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).dim)
+            end)
         elseif app == "__theme__" then
             local nt = BD.THEMES[data] or BD.THEMES[0]
             Topbar:SetTheme(nt)
@@ -213,6 +223,7 @@ local _shiftHeld = false
 local _ctrlHeld  = false
 
 function eventChannel1(sender, event)
+    log("KEY: " .. name)
     if not osReady then return end
     if event.Type ~= "KeyboardChipEvent" then return end
 
@@ -232,14 +243,27 @@ function eventChannel1(sender, event)
     if event.ButtonDown then
         if activeApp == "textpad" then
             TextPad:HandleKey(name, _shiftHeld, _ctrlHeld)
+        elseif activeApp == "aichat" then
+            AIChat:HandleKey(name, _shiftHeld, _ctrlHeld)
         else
             CLI:HandleKey(name, _shiftHeld, _ctrlHeld)
         end
     else
-        -- Key release - only handle for CLI smooth scroll
-        if activeApp ~= "textpad" then
+        -- Key release - only for CLI smooth scroll
+        if activeApp == nil then
             CLI:HandleKeyRelease(name, _shiftHeld, _ctrlHeld)
         end
+    end
+end
+
+---------------------------------------------------------------------------
+-- EventChannel2 -- Wifi0 connected to CPU0 EventChannel 2
+
+function eventChannel2(sender, event)
+    if not osReady then return end
+    if event.Type ~= "WifiWebResponseEvent" then return end
+    if activeApp == "aichat" then
+        AIChat:HandleWifiEvent(event)
     end
 end
 
@@ -260,6 +284,8 @@ function update()
     -- Logic
     if activeApp == "textpad" then
         TextPad:Update()
+    elseif activeApp == "aichat" then
+        AIChat:Update()
     else
         CLI:Update()
     end
@@ -274,6 +300,8 @@ function update()
 
     if activeApp == "textpad" then
         TextPad:Draw()
+    elseif activeApp == "aichat" then
+        AIChat:Draw()
     else
         CLI:Draw()
     end
