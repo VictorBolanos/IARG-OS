@@ -8,7 +8,7 @@
 -- BD, VFS are globals loaded by IARG-OS.lua
 
 AIChat = {}
-
+local Utils = require("Utils.lua")
 local BD         = require("BD.lua")
 
 local _video, _font, _theme, _wifi, _onClose
@@ -28,35 +28,14 @@ local function tp(x, y, txt, col)
     if not _font or not _video then return end
     for i = 1, #txt do
         local ch = txt:sub(i,i)
+        local spriteCol, spriteRow = Utils:GetSpriteCoords(ch)
         _video:DrawSprite(vec2(x+(i-1)*BD.CHAR_W,y),_font,
-            ch:byte()%32,math.floor(ch:byte()/32),col,color.clear)
+            spriteCol,spriteRow,col,color.clear)
     end
 end
 
 local function wrap(txt, maxW)
-    local out = {}
-    for para in (txt.."\n"):gmatch("([^\n]*)\n") do
-        if #para == 0 then
-            table.insert(out, "")
-        else
-            local cur = ""
-            for word in para:gmatch("%S+") do
-                local test = #cur>0 and (cur.." "..word) or word
-                if #test > maxW then
-                    if #cur>0 then table.insert(out,cur); cur=word
-                    else
-                        while #word>maxW do
-                            table.insert(out,word:sub(1,maxW))
-                            word=word:sub(maxW+1)
-                        end
-                        cur=word
-                    end
-                else cur=test end
-            end
-            if #cur>0 then table.insert(out,cur) end
-        end
-    end
-    return #out>0 and out or {""}
+    return Utils:WrapText(txt, maxW)
 end
 
 local function pushLines(prefix, text, colorKey)
@@ -88,22 +67,7 @@ end
 
 ---------------------------------------------------------------------------
 local function fixEncoding(s)
-    s = s:gsub("\195\177", "\128")  -- n~
-    s = s:gsub("\195\145", "\127")  -- N~
-    s = s:gsub("\194\191", "\129")  -- i?
-    s = s:gsub("\194\161", "\130")  -- i!
-    s = s:gsub("\195\161", "a")
-    s = s:gsub("\195\169", "e")
-    s = s:gsub("\195\173", "i")
-    s = s:gsub("\195\179", "o")
-    s = s:gsub("\195\186", "u")
-    s = s:gsub("\195\129", "A")
-    s = s:gsub("\195\137", "E")
-    s = s:gsub("\195\141", "I")
-    s = s:gsub("\195\147", "O")
-    s = s:gsub("\195\154", "U")
-    s = s:gsub("\195\188", "u")
-    return s
+    return Utils:FixEncoding(s)
 end
 
 local function stripMarkdown(s)
@@ -244,42 +208,7 @@ end
 
 ---------------------------------------------------------------------------
 function AIChat:_toChar(name, shift)
-    local L={A="a",B="b",C="c",D="d",E="e",F="f",G="g",H="h",I="i",J="j",
-             K="k",L="l",M="m",N="n",O="o",P="p",Q="q",R="r",S="s",T="t",
-             U="u",V="v",W="w",X="x",Y="y",Z="z"}
-    if L[name] then return shift and name or L[name] end
-    local N={Alpha0="0",Alpha1="1",Alpha2="2",Alpha3="3",Alpha4="4",
-             Alpha5="5",Alpha6="6",Alpha7="7",Alpha8="8",Alpha9="9",
-             Keypad0="0",Keypad1="1",Keypad2="2",Keypad3="3",Keypad4="4",
-             Keypad5="5",Keypad6="6",Keypad7="7",Keypad8="8",Keypad9="9"}
-    if N[name] then return N[name] end
-    if shift then
-        if name=="Minus"        then return "_" end
-        if name=="Alpha2"       then return '"' end
-        if name=="Alpha7"       then return "/" end
-        if name=="Alpha8"       then return "(" end
-        if name=="Alpha9"       then return ")" end
-        if name=="Alpha0"       then return "=" end
-        if name=="Quote"        then return "@" end
-        if name=="LeftBracket"  then return "[" end
-        if name=="RightBracket" then return "]" end
-        if name=="Backslash"    then return "|" end
-        if name=="Equals"       then return "+" end
-        if name=="Period"       then return ":" end
-        if name=="Comma"        then return ";" end
-        if name=="Slash"        then return "?" end
-    end
-    local S={Space=" ",Period=".",Comma=",",Minus="-",Slash="/",
-             Backslash="\\",Semicolon=";",Quote="'",Equals="=",
-             LeftBracket="[",RightBracket="]",BackQuote="\128",  -- ñ
-             Exclaim="!",DoubleQuote='"',Hash="#",Dollar="$",
-             Percent="%",Ampersand="&",LeftParen="(",RightParen=")",
-             Asterisk="*",Plus="+",Colon=":",Less="<",Greater=">",
-             Question="?",At="@",Caret="^",Underscore="_",
-             LeftCurlyBracket="{",Pipe="|",RightCurlyBracket="}",Tilde="~",
-             KeypadPeriod=".",KeypadDivide="/",KeypadMultiply="*",
-             KeypadMinus="-",KeypadPlus="+",KeypadEquals="="}
-    return S[name]
+    return Utils:InputToChar(name, shift)
 end
 
 ---------------------------------------------------------------------------

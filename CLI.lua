@@ -20,6 +20,7 @@
 -- BD, VFS, SaveSystem are globals loaded by IARG-OS.lua
 
 CLI = {}
+local Utils = require("Utils.lua")
 
 local _video    = nil
 local _font     = nil
@@ -54,11 +55,12 @@ local function tp(x, y, txt, col)
     if not _font or not _video then return end
     for i = 1, #txt do
         local ch = txt:sub(i, i)
+        local spriteCol, spriteRow = Utils:GetSpriteCoords(ch)
         _video:DrawSprite(
             vec2(x + (i-1) * BD.CHAR_W, y),
             _font,
-            ch:byte() % 32,
-            math.floor(ch:byte() / 32),
+            spriteCol,
+            spriteRow,
             col, color.clear)
     end
 end
@@ -68,22 +70,7 @@ end
 -- Sprite positions: ñ=row3col31 Ñ=row4col0 ¿=row4col1 ¡=row4col2
 
 local function fixEncoding(s)
-    s = s:gsub("\195\177", "\128")  -- ñ
-    s = s:gsub("\195\145", "\127")  -- Ñ
-    s = s:gsub("\194\191", "\129")  -- ¿
-    s = s:gsub("\194\161", "\130")  -- ¡
-    s = s:gsub("\195\161", "a")
-    s = s:gsub("\195\169", "e")
-    s = s:gsub("\195\173", "i")
-    s = s:gsub("\195\179", "o")
-    s = s:gsub("\195\186", "u")
-    s = s:gsub("\195\129", "A")
-    s = s:gsub("\195\137", "E")
-    s = s:gsub("\195\141", "I")
-    s = s:gsub("\195\147", "O")
-    s = s:gsub("\195\154", "U")
-    s = s:gsub("\195\188", "u")
-    return s
+    return Utils:FixEncoding(s)
 end
 
 ---------------------------------------------------------------------------
@@ -187,7 +174,12 @@ function CLI:_execute(cmdStr)
         self:_out("  theme <0-9>        Change visual theme", _theme.output)
         self:_out("  help               Show this help", _theme.output)
         self:_out("  clear              Clear screen", _theme.output)
-        self:_out("", _theme.text)
+        self:_out("Spanish characters (substitutes):", _theme.success)
+        self:_out("  ñ = BackQuote      Ñ = Shift + BackQuote", _theme.output)
+        self:_out("  á = Shift + [      Á = Shift + {      é = Shift + ;", _theme.output)
+        self:_out("  É = Shift + :      í = Shift + '      Í = Shift + \"", _theme.output)
+        self:_out("  ó = Shift + ,      Ó = Shift + <      ú = Shift + .", _theme.output)
+        self:_out("  Ú = Shift + >      ¿ = Shift + ?      ¡ = Shift + !", _theme.output)
         self:_out("Navigation:", _theme.success)
         self:_out("  Up/Down arrows     Navigate command history", _theme.output)
         self:_out("  Ctrl+Up/Down       Scroll terminal output", _theme.output)
@@ -472,84 +464,7 @@ end
 -- InputName to printable character
 
 function CLI:_inputToChar(name, shift)
-    -- Letters A-Z
-    local letters = {
-        A="a",B="b",C="c",D="d",E="e",F="f",G="g",H="h",I="i",J="j",
-        K="k",L="l",M="m",N="n",O="o",P="p",Q="q",R="r",S="s",T="t",
-        U="u",V="v",W="w",X="x",Y="y",Z="z"
-    }
-    if letters[name] then return shift and name or letters[name] end
-
-    -- Digits
-    local nums = {
-        Alpha0="0",Alpha1="1",Alpha2="2",Alpha3="3",Alpha4="4",
-        Alpha5="5",Alpha6="6",Alpha7="7",Alpha8="8",Alpha9="9",
-        Keypad0="0",Keypad1="1",Keypad2="2",Keypad3="3",Keypad4="4",
-        Keypad5="5",Keypad6="6",Keypad7="7",Keypad8="8",Keypad9="9",
-    }
-    if nums[name] then return nums[name] end
-
-    -- Shift combinations
-    if shift then
-        if name == "Minus"        then return "_"     end  -- underscore
-        if name == "Alpha2"       then return '"'    end
-        if name == "Alpha7"       then return "/"    end
-        if name == "Alpha8"       then return "("    end
-        if name == "Alpha9"       then return ")"    end
-        if name == "Alpha0"       then return "="    end
-        if name == "Quote"        then return "@"    end
-        if name == "LeftBracket"  then return "["    end
-        if name == "RightBracket" then return "]"    end
-        if name == "Backslash"    then return "|"    end
-        if name == "Equals"       then return "+"    end
-        if name == "Period"       then return ":"    end
-        if name == "Comma"        then return ";"    end
-        if name == "Slash"        then return "?"    end
-    end
-
-    -- Direct symbols
-    local direct = {
-        Space             = " ",
-        Period            = ".",
-        Comma             = ",",
-        Minus             = "-",
-        Slash             = "/",
-        Backslash         = "\\",
-        Semicolon         = ";",
-        Quote             = "'",
-        Equals            = "=",
-        LeftBracket       = "[",
-        RightBracket      = "]",
-        BackQuote         = "\128",  -- ñ (physical ñ key on Spanish keyboard)
-        Exclaim           = "!",
-        DoubleQuote       = '"',
-        Hash              = "#",
-        Dollar            = "$",
-        Percent           = "%",
-        Ampersand         = "&",
-        LeftParen         = "(",
-        RightParen        = ")",
-        Asterisk          = "*",
-        Plus              = "+",
-        Colon             = ":",
-        Less              = "<",
-        Greater           = ">",
-        Question          = "?",
-        At                = "@",
-        Caret             = "^",
-        Underscore        = "_",
-        LeftCurlyBracket  = "{",
-        Pipe              = "|",
-        RightCurlyBracket = "}",
-        Tilde             = "~",
-        KeypadPeriod      = ".",
-        KeypadDivide      = "/",
-        KeypadMultiply    = "*",
-        KeypadMinus       = "-",
-        KeypadPlus        = "+",
-        KeypadEquals      = "=",
-    }
-    return direct[name]
+    return Utils:InputToChar(name, shift)
 end
 
 ---------------------------------------------------------------------------

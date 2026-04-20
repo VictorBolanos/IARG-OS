@@ -4,8 +4,10 @@
 -- Internal: Esc=exit, Ctrl+S=save (implementado via LedButton)
 ---------------------------------------------------------------------------
 
--- BD, SaveSystem, VFS are globals loaded by IARG-OS.lua
+-- BD, VFS, SaveSystem are globals loaded by IARG-OS.lua
+
 TextPad = {}
+local Utils = require("Utils.lua")
 
 local BD         = require("BD.lua")
 
@@ -36,22 +38,7 @@ local MAXCOLS = nil
 -- Convert UTF-8 special chars to custom font sprite bytes
 
 local function fixEncoding(s)
-    s = s:gsub("\195\177", "\128")
-    s = s:gsub("\195\145", "\127")
-    s = s:gsub("\194\191", "\129")
-    s = s:gsub("\194\161", "\130")
-    s = s:gsub("\195\161", "a")
-    s = s:gsub("\195\169", "e")
-    s = s:gsub("\195\173", "i")
-    s = s:gsub("\195\179", "o")
-    s = s:gsub("\195\186", "u")
-    s = s:gsub("\195\129", "A")
-    s = s:gsub("\195\137", "E")
-    s = s:gsub("\195\141", "I")
-    s = s:gsub("\195\147", "O")
-    s = s:gsub("\195\154", "U")
-    s = s:gsub("\195\188", "u")
-    return s
+    return Utils:FixEncoding(s)
 end
 
 function TextPad:Init(videoChip, font, themeData, fileNode, currentDir, onCloseCb)
@@ -490,71 +477,7 @@ end
 -- Convert InputName to printable character
 
 function TextPad:_inputToChar(name, shift)
-    -- Spanish character substitutes (same as CLI for consistency)
-    local spanishSubs = {
-        -- ñ/Ñ (most common Spanish characters)
-        Tilde = "ñ",      -- Shift + ~ (easy to find)
-        Caret = "Ñ",      -- Shift + ^ (alternative)
-        
-        -- Vocales con tilde (using nearby keys)
-        LeftBracket = "á",  -- Shift + [ (near 'a')
-        LeftCurlyBracket = "Á", -- Shift + { (capital á)
-        Semicolon = "é",   -- Shift + ; (near 'e')
-        Colon = "É",       -- Shift + : (capital é)
-        Quote = "í",       -- Shift + ' (near 'i')
-        DoubleQuote = "Í",  -- Shift + " (capital í)
-        Comma = "ó",       -- Shift + , (near 'o')
-        Less = "Ó",        -- Shift + < (capital ó)
-        Period = "ú",      -- Shift + . (near 'u')
-        Greater = "Ú",      -- Shift + > (capital ú)
-        
-        -- Signos españoles
-        Question = "¿",    -- Shift + ? (opening question mark)
-        Exclaim = "¡",     -- Shift + ! (inverted exclamation)
-    }
-    
-    -- Check Spanish substitutes first (highest priority)
-    if spanishSubs[name] then
-        return spanishSubs[name]
-    end
-    
-    -- Letters A-Z
-    local letters = {
-        A="a",B="b",C="c",D="d",E="e",F="f",G="g",H="h",I="i",J="j",
-        K="k",L="l",M="m",N="n",O="o",P="p",Q="q",R="r",S="s",T="t",
-        U="u",V="v",W="w",X="x",Y="y",Z="z"
-    }
-    if letters[name] then
-        return shift and name or letters[name]
-    end
-
-    -- Numbers
-    local nums = {
-        Alpha0="0",Alpha1="1",Alpha2="2",Alpha3="3",Alpha4="4",
-        Alpha5="5",Alpha6="6",Alpha7="7",Alpha8="8",Alpha9="9",
-        Keypad0="0",Keypad1="1",Keypad2="2",Keypad3="3",Keypad4="4",
-        Keypad5="5",Keypad6="6",Keypad7="7",Keypad8="8",Keypad9="9",
-    }
-    if nums[name] then return nums[name] end
-    -- Shift+Minus = "_" on keyboards where Underscore is not a separate key
-    if name == "Minus" and shift then return "_" end
-
-
-    -- Symbols with dedicated InputName (official docs)
-    local direct = {
-        Space=" ", Period=".", Comma=",", Minus="-", Slash="/",
-        Backslash="\\", Semicolon=";", Quote="'", Equals="=",
-        LeftBracket="[", RightBracket="]", BackQuote="\128",  -- ñ
-        Exclaim="!", DoubleQuote='"', Hash="#", Dollar="$",
-        Percent="%", Ampersand="&", LeftParen="(", RightParen=")",
-        Asterisk="*", Plus="+", Colon=":", Less="<", Greater=">",
-        Question="?", At="@", Caret="^", Underscore="_",
-        LeftCurlyBracket="{", Pipe="|", RightCurlyBracket="}", Tilde="~",
-        KeypadPeriod=".", KeypadDivide="/", KeypadMultiply="*",
-        KeypadMinus="-", KeypadPlus="+", KeypadEquals="=",
-    }
-    if direct[name] then return direct[name] end
-    return nil
+    return Utils:InputToChar(name, shift)
 end
 
 ---------------------------------------------------------------------------
@@ -659,8 +582,9 @@ function TextPad:_tprint(x, y, txt, col)
     if not _font then return end
     for i=1,#txt do
         local ch=txt:sub(i,i)
+        local spriteCol, spriteRow = Utils:GetSpriteCoords(ch)
         _video:DrawSprite(vec2(x+(i-1)*BD.CHAR_W, y), _font,
-            ch:byte()%32, math.floor(ch:byte()/32), col, color.clear)
+            spriteCol, spriteRow, col, color.clear)
     end
 end
 
