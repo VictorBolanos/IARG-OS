@@ -33,8 +33,7 @@ TextPad     = require("TextPad.lua")
 AIChat      = require("AIChat.lua")
 Tetris      = require("Tetris.lua")
 Chess       = require("Chess.lua")
-SysInfo     = require("SysInfo.lua")
-NetInfo     = require("NetInfo.lua")
+SystemInfo  = require("SysInfo.lua")
 
 -- Hardware
 local video    = gdt.VideoChip0
@@ -240,16 +239,9 @@ local function initOS()
         elseif app == "SysInfo" then
             activeApp = "sysinfo"
             local t = BD.THEMES[OSConfig.theme] or BD.THEMES[0]
-            SysInfo:Init(video, font, t, function()
+            SystemInfo:Init(video, font, t, function()
                 activeApp = nil
-                CLI:_out("SysInfo closed.", (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).dim)
-            end)
-        elseif app == "NetInfo" then
-            activeApp = "netinfo"
-            local t = BD.THEMES[OSConfig.theme] or BD.THEMES[0]
-            NetInfo:Init(video, font, t, function()
-                activeApp = nil
-                CLI:_out("NetInfo closed.", (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).dim)
+                CLI:_out("SystemInfo closed.", (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).dim)
             end)
         elseif app == "__theme__" then
             local nt = BD.THEMES[data] or BD.THEMES[0]
@@ -295,9 +287,7 @@ function eventChannel1(sender, event)
         elseif activeApp == "chess" then
             Chess:HandleKey(name, _shiftHeld, _ctrlHeld)
         elseif activeApp == "sysinfo" then
-            SysInfo:HandleKey(name, _shiftHeld, _ctrlHeld)
-        elseif activeApp == "netinfo" then
-            NetInfo:HandleKey(name, _shiftHeld, _ctrlHeld)
+            SystemInfo:HandleKey(name, _shiftHeld, _ctrlHeld)
         else
             CLI:HandleKey(name, _shiftHeld, _ctrlHeld)
         end
@@ -330,7 +320,7 @@ function eventChannel3(sender, event)
     if activeApp == "chess" then
         Chess:HandleMouse(event.Button, event.X, event.Y, event.ButtonDown)
     elseif activeApp == "sysinfo" then
-        SysInfo:HandleMouse(event.Button, event.X, event.Y, event.ButtonDown)
+        SystemInfo:HandleMouse(event.Button, event.X, event.Y, event.ButtonDown)
     end
 end
 
@@ -359,7 +349,7 @@ function update()
     elseif activeApp == "chess" then
         Chess:Update()
     elseif activeApp == "sysinfo" then
-        SysInfo:Update()
+        SystemInfo:Update()
     else
         CLI:Update()
     end
@@ -381,9 +371,7 @@ function update()
     elseif activeApp == "chess" then
         Chess:Draw()
     elseif activeApp == "sysinfo" then
-        SysInfo:Draw()
-    elseif activeApp == "netinfo" then
-        NetInfo:Draw()
+        SystemInfo:Draw()
     else
         CLI:Draw()
     end

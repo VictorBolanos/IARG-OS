@@ -170,7 +170,7 @@ function CLI:_execute(cmdStr)
         self:_out("  cat <name>         Print file contents", _theme.output)
         self:_out("  run TextPad [file] Open text editor", _theme.output)
         self:_out("  run ai             Open AI chat", _theme.output)
-        self:_out("  run sys             Open system info", _theme.output)
+        self:_out("  sys               Open system & network info", _theme.output)
         self:_out("  game <n>        Launch a game", _theme.output)
         self:_out("  theme <0-9>        Change visual theme", _theme.output)
         self:_out("  help               Show this help", _theme.output)
@@ -303,7 +303,7 @@ function CLI:_execute(cmdStr)
 
     elseif cmd == "run" then
         if not arg1 then
-            self:_out("Usage: run TextPad [filename] | run AI | run sys | run net", _theme.error)
+            self:_out("Usage: run TextPad [filename] | run AI", _theme.error)
         elseif arg1:lower() == "textpad" then
             local fileNode = nil
             if arg2 then
@@ -330,13 +330,9 @@ function CLI:_execute(cmdStr)
             if _onLaunch then _onLaunch("TextPad", fileNode) end
         elseif arg1:lower() == "ai" then
             if _onLaunch then _onLaunch("AIChat", nil) end
-        elseif arg1:lower() == "sys" then
-            if _onLaunch then _onLaunch("SysInfo", nil) end
-        elseif arg1:lower() == "net" then
-            if _onLaunch then _onLaunch("NetInfo", nil) end
         else
             self:_out("Unknown app: " .. arg1, _theme.error)
-            self:_out("Available apps: TextPad, AI, sys, net", _theme.dim)
+            self:_out("Available apps: TextPad, AI", _theme.dim)
         end
 
     elseif cmd == "game" then
@@ -356,6 +352,9 @@ function CLI:_execute(cmdStr)
                 self:_out("Available: tetris, chess", _theme.dim)
             end
         end
+
+    elseif cmd == "sys" then
+        if _onLaunch then _onLaunch("SysInfo", nil) end
 
     elseif cmd == "theme" then
         if not arg1 then
