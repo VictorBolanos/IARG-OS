@@ -34,6 +34,7 @@ AIChat      = require("AIChat.lua")
 Tetris      = require("Tetris.lua")
 Chess       = require("Chess.lua")
 SystemInfo  = require("SysInfo.lua")
+RetroMixer  = require("RetroMixer.lua")
 
 -- Hardware
 local video    = gdt.VideoChip0
@@ -243,14 +244,116 @@ local function initOS()
                 activeApp = nil
                 CLI:_out("SystemInfo closed.", (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).dim)
             end)
+        elseif app == "RetroMixer" then
+            CLI:_out("STEP1: About to start RetroMixer...", (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).success)
+            
+            local success, err = pcall(function()
+                CLI:_out("STEP2: Setting activeApp...", (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).success)
+                activeApp = "retromixer"
+                CLI:_out("STEP3: activeApp is now: " .. tostring(activeApp), (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).success)
+                
+                CLI:_out("STEP4: Calling RetroMixer:Init...", (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).success)
+                local t = BD.THEMES[OSConfig.theme] or BD.THEMES[0]
+                RetroMixer:Init(video, font, t, function()
+                    CLI:_out("STEP6: RetroMixer onClose called", (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).dim)
+                    activeApp = nil
+                    CLI:_out("RetroMixer closed.", (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).dim)
+                end)
+                CLI:_out("STEP5: RetroMixer:Init completed", (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).success)
+            end)
+            
+            if not success then
+                CLI:_out("ERROR: " .. tostring(err), (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).error)
+                CLI:_out("FAILED: activeApp is: " .. tostring(activeApp), (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).error)
+                activeApp = nil
+            else
+                CLI:_out("STEP7: RetroMixer initialized successfully!", (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).success)
+                CLI:_out("FINAL: activeApp is: " .. tostring(activeApp), (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).success)
+            end
         elseif app == "__theme__" then
             local nt = BD.THEMES[data] or BD.THEMES[0]
             Topbar:SetTheme(nt)
             CLI:SetTheme(nt)
+        elseif app == "SoundTest" then
+            local soundFile = VFS:Open("soundtest.wav", "rb")
+            if soundFile then
+                local soundData = soundFile:Read()
+                soundFile:Close()
+                audioChip:PlaySound(soundData, 0)
+            else
+                CLI:_out("Error: soundtest.wav not found", (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).error)
+            end
         end
-    end)
+    end)  
 
     osReady = true
+end  
+
+---------------------------------------------------------------------------
+-- Direct F2 Sound Test Function
+local function testDirectF2Sound()
+    CLI:_out("F2: Testing ROM sounds first...", Color(0, 255, 255))
+    
+    -- Try boot.wav from ROM first
+    local bootSample = nil
+    pcall(function()
+        bootSample = rom.User.AudioSamples["boot.wav"]
+    end)
+    
+    if bootSample then
+        CLI:_out("F2: Found boot.wav in ROM!", Color(0, 255, 0))
+        
+        if audioChip then
+            local playSuccess = audioChip:Play(bootSample, 0)  -- Channel 0
+            audioChip:SetChannelVolume(80, 0)
+            
+            CLI:_out("F2: Boot sound play success=" .. tostring(playSuccess) .. " on channel 0", Color(255, 0, 255))
+            
+            if playSuccess then
+                CLI:_out("F2: *** BOOT SOUND PLAYING! ***", Color(255, 255, 255))
+                return
+            end
+        else
+            CLI:_out("F2: ERROR - No AudioChip available!", Color(255, 0, 0))
+        end
+    else
+        CLI:_out("F2: ERROR - boot.wav not found in ROM!", Color(255, 0, 0))
+    end
+    
+    -- Try simple artificial sound (small sample)
+    CLI:_out("F2: Trying simple artificial sound...", Color(255, 255, 0))
+    
+    local samples = {}
+    for i = 1, 100 do  -- Only 100 samples to avoid unpack error
+        samples[i] = 128 + math.floor(math.sin(i * 0.1) * 50)  -- Simple wave
+    end
+    
+    CLI:_out("F2: Generated 100 samples (first=" .. samples[1] .. ", last=" .. samples[100] .. ")", Color(0, 255, 0))
+    
+    -- Create AudioSample
+    local success, audioSample = pcall(function()
+        return AudioSample(samples, 44100)
+    end)
+    
+    if success and audioSample then
+        CLI:_out("F2: AudioSample created successfully!", Color(0, 255, 0))
+        
+        if audioChip then
+            local playSuccess = audioChip:Play(audioSample, 1)  -- Channel 1
+            audioChip:SetChannelVolume(80, 1)
+            
+            CLI:_out("F2: Play success=" .. tostring(playSuccess) .. " on channel 1", Color(255, 0, 255))
+            
+            if playSuccess then
+                CLI:_out("F2: *** ARTIFICIAL SOUND PLAYING! ***", Color(255, 255, 255))
+                return
+            end
+        end
+    else
+        CLI:_out("F2: ERROR - Failed to create AudioSample: " .. tostring(audioSample), Color(255, 0, 0))
+    end
+    
+    CLI:_out("F2: *** NO SOUND METHOD WORKED! ***", Color(255, 0, 0))
 end
 
 ---------------------------------------------------------------------------
@@ -266,6 +369,14 @@ function eventChannel1(sender, event)
 
     local name = event.InputName:gsub("^KeyboardChip%.", "")
 
+    -- Debug: Show ALL key events when RetroMixer is active
+    if activeApp == "retromixer" and event.ButtonDown then
+        -- Forzar salida a CLI para ver si llega algo
+        pcall(function()
+            CLI:_out("EVENT: " .. event.InputName .. " -> " .. name, Color(255, 255, 255))
+        end)
+    end
+
     -- Track shift and ctrl via ButtonDown/ButtonUp
     if name == "LeftShift" or name == "RightShift" then
         _shiftHeld = event.ButtonDown
@@ -278,18 +389,29 @@ function eventChannel1(sender, event)
 
     -- Process both key presses and releases
     if event.ButtonDown then
+        -- DIRECT SOUND TEST: F2 (LedButton2) - Global test before mixer
+        if name == "F2" then
+            CLI:_out("F2 PRESSED - DIRECT SOUND TEST!", Color(255, 255, 0))
+            testDirectF2Sound()
+            return
+        end
+        
         if activeApp == "textpad" then
             TextPad:HandleKey(name, _shiftHeld, _ctrlHeld)
         elseif activeApp == "aichat" then
             AIChat:HandleKey(name, _shiftHeld, _ctrlHeld)
         elseif activeApp == "tetris" then
-            Tetris:HandleKey(name, _shiftHeld, _ctrlHeld)
+            Tetris:HandleKey(name, event.Shift, event.Ctrl)
         elseif activeApp == "chess" then
-            Chess:HandleKey(name, _shiftHeld, _ctrlHeld)
+            Chess:HandleKey(name, event.Shift, event.Ctrl)
         elseif activeApp == "sysinfo" then
-            SystemInfo:HandleKey(name, _shiftHeld, _ctrlHeld)
+            SystemInfo:HandleKey(name, event.Shift, event.Ctrl)
+        elseif activeApp == "retromixer" then
+            -- Debug: Show key being sent to RetroMixer
+            CLI:_out("SEND: " .. name .. " to RetroMixer", Color(0, 255, 255))
+            RetroMixer:HandleKey(name, event.Shift, event.Ctrl)
         else
-            CLI:HandleKey(name, _shiftHeld, _ctrlHeld)
+            CLI:HandleKey(name, event.Shift, event.Ctrl)
         end
     else
         -- Key release - only for CLI smooth scroll
@@ -321,6 +443,8 @@ function eventChannel3(sender, event)
         Chess:HandleMouse(event.Button, event.X, event.Y, event.ButtonDown)
     elseif activeApp == "sysinfo" then
         SystemInfo:HandleMouse(event.Button, event.X, event.Y, event.ButtonDown)
+    elseif activeApp == "retromixer" then
+        RetroMixer:HandleMouse(event.Button, event.X, event.Y, event.ButtonDown)
     end
 end
 
@@ -350,6 +474,8 @@ function update()
         Chess:Update()
     elseif activeApp == "sysinfo" then
         SystemInfo:Update()
+    elseif activeApp == "retromixer" then
+        RetroMixer:Update()
     else
         CLI:Update()
     end
@@ -372,6 +498,8 @@ function update()
         Chess:Draw()
     elseif activeApp == "sysinfo" then
         SystemInfo:Draw()
+    elseif activeApp == "retromixer" then
+        RetroMixer:Draw()
     else
         CLI:Draw()
     end
