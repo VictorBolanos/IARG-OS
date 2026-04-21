@@ -76,6 +76,7 @@ local exitConfirmMode = false -- Confirmation mode for ESC
 local gameOverPopup = false -- Game over popup mode
 local popupMessage = "" -- Message to display in popup
 local popupType = "" -- Type of popup: "next_level", "game_completed", "new_game"
+local lives = 3 -- Player lives (3 lives to complete all levels)
 
 ---------------------------------------------------------------------------
 -- Random color generation
@@ -133,7 +134,7 @@ local function advanceToNextLevel()
         gameOverPopup = false -- Reset game over popup mode
         popupMessage = "" -- Reset popup message
         popupType = "" -- Reset popup type
-        initializeBoard()
+        Chess.initializeBoard()
         playerPieceColor = generateRandomPlayerColor()
         currentTurn = WHITE
         selectedPiece = nil
@@ -217,13 +218,34 @@ local function drawGameOverPopup()
             _video:DrawSprite(vec2(titleX + (i-1)*4, dialogY + 20), _font,
                 ch:byte()%32, math.floor(ch:byte()/32), successColor, color.clear)
         end
+        
+        -- Add instruction text based on popup type
+        local instruction = ""
+        if popupType == "next_level" then
+            instruction = "Press Enter to Next Level"
+        elseif popupType == "lose_life" then
+            instruction = "Press Enter to Retry"
+        elseif popupType == "final_game_over" then
+            instruction = "Press Enter to Exit"
+        elseif popupType == "game_completed" then
+            instruction = "Press Enter to New Game"
+        end
+        
+        if instruction ~= "" then
+            local instructionX = dialogX + (dialogWidth - #instruction * 4) / 2
+            for i = 1, #instruction do
+                local ch = instruction:sub(i, i)
+                _video:DrawSprite(vec2(instructionX + (i-1)*4, dialogY + 35), _font,
+                    ch:byte()%32, math.floor(ch:byte()/32), dimColor, color.clear)
+            end
+        end
     end
 end
 
 ---------------------------------------------------------------------------
 -- Board initialization
 
-local function initializeBoard()
+function Chess.initializeBoard()
     -- Clear board
     for row = 1, BOARD_SIZE do
         board[row] = {}
@@ -259,6 +281,9 @@ local function initializeBoard()
     board[1][7] = {color = BLACK, type = KNIGHT}
     board[1][8] = {color = BLACK, type = ROOK}
 end
+
+-- Also keep local reference for internal use
+local initializeBoard = Chess.initializeBoard
 
 ---------------------------------------------------------------------------
 -- Utility functions
@@ -847,8 +872,15 @@ local function drawUI()
                 popupType = "game_completed"
             end
         else
-            popupMessage = "Game Over - Try Again"
-            popupType = "new_game"
+            -- Player lost - lose a life
+            lives = lives - 1
+            if lives > 0 then
+                popupMessage = "Lost a Life! (" .. lives .. " left)"
+                popupType = "lose_life"
+            else
+                popupMessage = "Game Over - No Lives Left!"
+                popupType = "final_game_over"
+            end
         end
         
         gameOverPopup = true
@@ -863,6 +895,28 @@ local function drawUI()
     tp(10, BOARD_Y + 65, "1-3: Difficulty", getThemeColor("text"))
     tp(10, BOARD_Y + 75, "N: New Game", getThemeColor("text"))
     tp(10, BOARD_Y + 85, "Esc: Exit", getThemeColor("text"))
+    
+    -- Lives display
+    tp(10, BOARD_Y + 105, "LIVES:", getThemeColor("success"))
+    for i = 1, 3 do
+        if i <= lives then
+            tp(50 + (i-1)*8, BOARD_Y + 105, "<3", getThemeColor("success"))  -- Heart
+        else
+            tp(50 + (i-1)*8, BOARD_Y + 105, "</3", getThemeColor("dim"))  -- Broken heart
+        end
+    end
+end
+
+---------------------------------------------------------------------------
+-- Debug functions (hidden - only accessible via F1-F3 keys)
+
+local function forceWin(winnerColor)
+    -- Force game over with specified winner
+    gameOver = true
+    winner = winnerColor
+    gameOverPopup = false -- Reset to trigger popup creation
+    
+    -- The popup will be created in the next draw cycle
 end
 
 ---------------------------------------------------------------------------
@@ -989,12 +1043,13 @@ Chess.Init = function(self, video, font, theme, onClose)
     -- Initialize level system
     currentLevel = 1
     difficulty = 1 -- Start with easy difficulty
+    lives = 3 -- Reset lives to 3
     exitConfirmMode = false -- Reset confirmation mode
     gameOverPopup = false -- Reset game over popup mode
     popupMessage = "" -- Reset popup message
     popupType = "" -- Reset popup type
     
-    initializeBoard()
+    Chess.initializeBoard()
     playerPieceColor = generateRandomPlayerColor() -- Generate random color for player
     currentTurn = WHITE
     selectedPiece = nil
@@ -1036,9 +1091,27 @@ Chess.HandleKey = function(self, name, shift, ctrl)
                     difficulty = 1
                     advanceToNextLevel()
                 end
+            elseif popupType == "lose_life" then
+                -- Lost a life - retry current level
+                Chess.initializeBoard()
+                playerPieceColor = generateRandomPlayerColor()
+                currentTurn = WHITE
+                selectedPiece = nil
+                cursorPos = {row = 4, col = 4}
+                validMoves = {}
+                gameOver = false
+                winner = nil
+                moveHistory = {}
+                lastMove = nil
+                inCheck = {white = false, black = false}
+                capturedPieces = {white = {}, black = {}}
+            elseif popupType == "final_game_over" then
+                -- No lives left - exit game
+                if _onClose then _onClose() end
+                return
             else
-                -- New game (game_completed or new_game)
-                initializeBoard()
+                -- New game (game_completed)
+                Chess.initializeBoard()
                 playerPieceColor = generateRandomPlayerColor()
                 currentTurn = WHITE
                 selectedPiece = nil
@@ -1058,6 +1131,36 @@ Chess.HandleKey = function(self, name, shift, ctrl)
             popupType = ""
             return
         end
+    end
+    
+    -- DEBUG KEYS (hidden from user - only for development)
+    if name == "F1" then
+        -- Force White win (player wins)
+        forceWin(WHITE)
+        return
+    end
+    
+    if name == "F2" then
+        -- Force Black win (player loses)
+        forceWin(BLACK)
+        return
+    end
+    
+    if name == "F3" then
+        -- Reset board completely (debug reset)
+        Chess.initializeBoard()
+        playerPieceColor = generateRandomPlayerColor()
+        currentTurn = WHITE
+        selectedPiece = nil
+        cursorPos = {row = 4, col = 4}
+        validMoves = {}
+        gameOver = false
+        winner = nil
+        moveHistory = {}
+        lastMove = nil
+        inCheck = {white = false, black = false}
+        capturedPieces = {white = {}, black = {}}
+        return
     end
     
     -- Don't process other keys while in confirmation mode or game over popup
@@ -1080,7 +1183,7 @@ Chess.HandleKey = function(self, name, shift, ctrl)
             else
                 -- Reset current level or start new game
                 exitConfirmMode = false -- Reset confirmation mode
-                initializeBoard()
+                Chess.initializeBoard()
                 playerPieceColor = generateRandomPlayerColor() -- New random color
                 currentTurn = WHITE
                 selectedPiece = nil
