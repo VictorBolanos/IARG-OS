@@ -170,6 +170,7 @@ function CLI:_execute(cmdStr)
         self:_out("  cat <name>         Print file contents", _theme.output)
         self:_out("  run TextPad [file] Open text editor", _theme.output)
         self:_out("  run ai             Open AI chat", _theme.output)
+        self:_out("  run mixer         Open RetroWave synthesizer", _theme.output)
         self:_out("  sys               Open system & network info", _theme.output)
         self:_out("  game <n>        Launch a game", _theme.output)
         self:_out("  theme <0-9>        Change visual theme", _theme.output)
@@ -303,7 +304,7 @@ function CLI:_execute(cmdStr)
 
     elseif cmd == "run" then
         if not arg1 then
-            self:_out("Usage: run TextPad [filename] | run AI", _theme.error)
+            self:_out("Usage: run TextPad [filename] | run AI | run mixer", _theme.error)
         elseif arg1:lower() == "textpad" then
             local fileNode = nil
             if arg2 then
@@ -330,9 +331,12 @@ function CLI:_execute(cmdStr)
             if _onLaunch then _onLaunch("TextPad", fileNode) end
         elseif arg1:lower() == "ai" then
             if _onLaunch then _onLaunch("AIChat", nil) end
+        elseif arg1:lower() == "mixer" then
+            self:_out("Launching RetroMixer...", _theme.success)
+            if _onLaunch then _onLaunch("RetroMixer", nil) end
         else
             self:_out("Unknown app: " .. arg1, _theme.error)
-            self:_out("Available apps: TextPad, AI", _theme.dim)
+            self:_out("Available apps: TextPad, AI, mixer", _theme.dim)
         end
 
     elseif cmd == "game" then
