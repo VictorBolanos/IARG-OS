@@ -790,31 +790,55 @@ local function drawHelpScreen()
     _video:FillRect(vec2(0, BD.CONTENT_Y), vec2(_video.Width - 1, _video.Height - 1), getThemeColor("bg"))
     
     -- Title
-    tp(10, BD.CONTENT_Y + 2, "RETROWAVE 3000 - USER MANUAL", getThemeColor("success"))
+    tp(10, BD.CONTENT_Y + 2, "RETROWAVE 3000 - MUSICAL KEYBOARD", getThemeColor("success"))
     
     local y = BD.CONTENT_Y + 12
     local lineHeight = 7
     
-    -- Musical keys
-    tp(10, y, "MUSICAL KEYS:", getThemeColor("success"))
+    -- How it works
+    tp(10, y, "HOW IT WORKS:", getThemeColor("success"))
     y = y + lineHeight
-    tp(10, y, "  Q-P: C4-D5 (Middle C to D5)", getThemeColor("text"))
+    tp(10, y, "  18 notes using .wav files from ROM", getThemeColor("text"))
     y = y + lineHeight
-    tp(10, y, "  A-L: C3-B3 (C3 to B3)", getThemeColor("text"))
+    tp(10, y, "  Sawtooth 8-bit sound (1 second)", getThemeColor("text"))
+    y = y + lineHeight + 3
+    
+    -- Musical keys - Octava 3-5 (fila superior)
+    tp(10, y, "TOP ROW (Q-P): Octavas 3-5", getThemeColor("success"))
     y = y + lineHeight
-    tp(10, y, "  Z-M: C2-B2 (C2 to B2)", getThemeColor("text"))
+    tp(10, y, "  Q=C3  W=D3  E=E3  R=F3  T=G3", getThemeColor("text"))
+    y = y + lineHeight
+    tp(10, y, "  Y=A4  U=B4  I=C5  O=D5  P=E5", getThemeColor("text"))
+    y = y + lineHeight + 3
+    
+    -- Musical keys - Octava 2-4 (fila media)
+    tp(10, y, "MIDDLE ROW (A-L): Octavas 2-4", getThemeColor("success"))
+    y = y + lineHeight
+    tp(10, y, "  A=A2  S=C4  D=D4  F=E4  G=F4", getThemeColor("text"))
+    y = y + lineHeight
+    tp(10, y, "  H=G4  J=A4  K=B4  L=C5", getThemeColor("text"))
+    y = y + lineHeight + 3
+    
+    -- Musical keys - Octava 5 extras (fila inferior)
+    tp(10, y, "BOTTOM ROW (Z-C): Octava 5 extras", getThemeColor("success"))
+    y = y + lineHeight
+    tp(10, y, "  Z=D5  X=E5  C=F5", getThemeColor("text"))
     y = y + lineHeight + 3
     
     -- Control keys
     tp(10, y, "CONTROL KEYS:", getThemeColor("success"))
     y = y + lineHeight
-    tp(10, y, "  1-9: Change preset (1-16)", getThemeColor("text"))
+    tp(10, y, "  Ctrl+I: Toggle this help screen", getThemeColor("text"))
     y = y + lineHeight
-    tp(10, y, "  0: Sustain pedal (hold notes)", getThemeColor("text"))
+    tp(10, y, "  Escape: Exit RetroMixer", getThemeColor("text"))
+    y = y + lineHeight + 3
+    
+    -- Examples
+    tp(10, y, "EXAMPLES:", getThemeColor("success"))
     y = y + lineHeight
-    tp(10, y, "  - / =: Change octave (-1/+1)", getThemeColor("text"))
+    tp(10, y, "  Twinkle: C-C-G-G-A-A-G (Q-Q-T-T-Y-Y-T)", getThemeColor("text"))
     y = y + lineHeight
-    tp(10, y, "  [ ]: Change waveform (Sine->Square->Saw->Triangle)", getThemeColor("text"))
+    tp(10, y,  "  Happy Birthday: C-C-D-C-F-E (Q-Q-W-Q-E-W)", getThemeColor("text"))
     y = y + lineHeight
     tp(10, y, "  ; ': Change reverb (Off->Room->Hall->Cathedral)", getThemeColor("text"))
     y = y + lineHeight
@@ -958,7 +982,6 @@ local function playNoteFromROM(noteName, velocity)
         return false
     end
     
-    print("3NOTA:", noteSample)
     -- Use SoundSystem:PlayWav (the method that WORKS!)
     local success = SoundSystem:PlayWav(noteSample, false)
     
@@ -977,37 +1000,41 @@ end
 ---------------------------------------------------------------------------
 -- Input Handling
 function RetroMixer:HandleKey(name, shift, ctrl)
-    print("RETROMIXER: HandleKey called with: " .. tostring(name))
+    print("RETROMIXER: HandleKey called with: " .. tostring(name) .. " shift=" .. tostring(shift) .. " ctrl=" .. tostring(ctrl))
     
-    -- Help toggle
+    -- Help toggle - FIRST PRIORITY
     if ctrl and name == "I" then
-        print("RETROMIXER: Help toggle")
+        print("RETROMIXER: Help toggle - showing instructions (ctrl=" .. tostring(ctrl) .. ")")
         synthState.showHelp = not synthState.showHelp
         return
     end
     
-    -- Exit
+    -- Exit - SECOND PRIORITY
     if name == "Escape" then
         print("RETROMIXER: Exit")
         if _onClose then _onClose() end
         return
     end
     
-    -- Don't process other keys in help mode
+    -- Don't process musical keys in help mode
     if synthState.showHelp then 
         print("RETROMIXER: In help mode, ignoring key")
         return 
     end
     
-    -- Musical note handling
-    local lowerName = name:lower()
-    local note = keyToNote[lowerName]
-    
-    if note then
-        print("RETROMIXER: Musical note detected: " .. lowerName .. " -> " .. tostring(note))
-        playNoteFromROM(note, 100)
+    -- Musical note handling - LAST PRIORITY (only if not Ctrl)
+    if not ctrl then
+        local lowerName = name:lower()
+        local note = keyToNote[lowerName]
+        
+        if note then
+            print("RETROMIXER: Musical note detected: " .. lowerName .. " -> " .. tostring(note))
+            playNoteFromROM(note, 100)
+        else
+            print("RETROMIXER: Not a musical note: " .. tostring(lowerName))
+        end
     else
-        print("RETROMIXER: Not a musical note: " .. tostring(lowerName))
+        print("RETROMIXER: Ctrl key pressed, ignoring musical note")
     end
 end
 

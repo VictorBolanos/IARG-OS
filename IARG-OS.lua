@@ -409,7 +409,7 @@ function eventChannel1(sender, event)
         elseif activeApp == "retromixer" then
             -- Debug: Show key being sent to RetroMixer
             CLI:_out("SEND: " .. name .. " to RetroMixer", Color(0, 255, 255))
-            RetroMixer:HandleKey(name, event.Shift, event.Ctrl)
+            RetroMixer:HandleKey(name, _shiftHeld, _ctrlHeld)
         else
             CLI:HandleKey(name, event.Shift, event.Ctrl)
         end
