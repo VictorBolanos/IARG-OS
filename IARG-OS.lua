@@ -258,7 +258,7 @@ local function initOS()
                     CLI:_out("STEP6: RetroMixer onClose called", (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).dim)
                     activeApp = nil
                     CLI:_out("RetroMixer closed.", (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).dim)
-                end)
+                end, data)
                 CLI:_out("STEP5: RetroMixer:Init completed", (BD.THEMES[OSConfig.theme] or BD.THEMES[0]).success)
             end)
             

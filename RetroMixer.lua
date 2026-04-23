@@ -27,7 +27,6 @@ local _audioChip = nil
 -- Audio Engine Constants
 local SAMPLE_RATE = 44100
 local MAX_VOICES = 8
-local MAX_SEQUENCER_STEPS = 16
 local MAX_NOTES = 61  -- 5 octaves
 
 -- Musical note frequencies (A4 = 440Hz)
@@ -127,12 +126,6 @@ local synthState = {
     masterVolume = 0.8,
     octaveOffset = 0,
     sustain = false,
-    
-    -- Sequencer
-    sequencerActive = false,
-    sequencerTempo = 120,
-    currentBeat = 0,
-    sequencerGrid = {}, -- [beat][note] = boolean
     
     -- UI state
     currentPreset = 1,
@@ -311,14 +304,9 @@ local presets = {
 }
 
 ---------------------------------------------------------------------------
--- Initialize sequencer grid
+-- Initialize sequencer grid (deprecated - using new system)
 local function initializeSequencer()
-    for beat = 1, MAX_SEQUENCER_STEPS do
-        synthState.sequencerGrid[beat] = {}
-        for note = 1, 8 do
-            synthState.sequencerGrid[beat][note] = false
-        end
-    end
+    -- This function is deprecated - using the new sequencer system
 end
 
 ---------------------------------------------------------------------------
@@ -665,27 +653,10 @@ local function loadPreset(presetIndex)
 end
 
 ---------------------------------------------------------------------------
--- Sequencer Functions
+-- Sequencer Functions (deprecated - using new system)
 
 local function updateSequencer()
-    if not synthState.sequencerActive then return end
-    
-    -- Update beat position
-    local beatDuration = 60.0 / synthState.sequencerTempo
-    local currentBeat = math.floor((audioPhase * SAMPLE_RATE / beatDuration)) % MAX_SEQUENCER_STEPS + 1
-    
-    if currentBeat ~= synthState.currentBeat then
-        synthState.currentBeat = currentBeat
-        
-        -- Trigger notes for current beat
-        for note = 1, 8 do
-            if synthState.sequencerGrid[currentBeat][note] then
-                -- Map sequencer note to actual note
-                local sequencerNote = 25 + (note - 1) * 5  -- C3 to C5 range
-                allocateVoice(sequencerNote, 100)
-            end
-        end
-    end
+    -- This function is deprecated - using the new grid sequencer system
 end
 
 -- Grid Sequencer Playback Function
@@ -775,34 +746,10 @@ local function drawMainInterface()
            "  SUSTAIN: " .. string.format("%.2f", synthState.sustain) .. 
            "  RELEASE: " .. string.format("%.2f", synthState.release), getThemeColor("text"))
     
-    -- Draw sequencer grid
+    -- Draw sequencer grid (deprecated - using new grid system)
     y = y + 12
-    tp(10, y, "SEQUENCER - 16 BEATS", getThemeColor("success"))
+    tp(10, y, "SEQUENCER - GRID SYSTEM", getThemeColor("success"))
     y = y + 8
-    
-    local gridX = 10
-    local gridY = y
-    local cellWidth = 18
-    local cellHeight = 6
-    
-    for beat = 1, MAX_SEQUENCER_STEPS do
-        for note = 1, 8 do
-            local x = gridX + (beat - 1) * cellWidth
-            local y = gridY + (note - 1) * cellHeight
-            
-            if synthState.sequencerGrid[beat][note] then
-                _video:FillRect(vec2(x, y), vec2(x + cellWidth - 1, y + cellHeight - 1), getThemeColor("success"))
-            else
-                _video:DrawRect(vec2(x, y), vec2(x + cellWidth - 1, y + cellHeight - 1), getThemeColor("dim"))
-            end
-        end
-    end
-    
-    -- Current beat indicator
-    if synthState.sequencerActive then
-        local beatX = gridX + (synthState.currentBeat - 1) * cellWidth
-        _video:FillRect(vec2(beatX, gridY - 2), vec2(beatX + cellWidth - 1, gridY - 1), getThemeColor("error"))
-    end
     
     -- Performance monitor
     y = gridY + 8 * cellHeight + 8
@@ -814,7 +761,7 @@ local function drawMainInterface()
     y = y + 8
     local currentPresetData = presets[synthState.currentPreset]
     tp(10, y, "PRESET: " .. synthState.currentPreset .. "/16 - \"" .. currentPresetData.name .. "\"" .. 
-           "  TEMPO: " .. synthState.sequencerTempo .. " BPM", getThemeColor("text"))
+           "  TEMPO: " .. sequencer.bpm .. " BPM", getThemeColor("text"))
     
     -- Mode indicator
     y = y + 8
@@ -1000,11 +947,14 @@ sequencer.lastUsedMode = 1
 
 -- Input mode variables (like TextPad)
 local inputMode = false          -- false = normal, "save" = save dialog, "load" = load dialog
-local inputText = ""            -- Current input text
-local inputCursor = 0           -- Cursor position in input
-local inputPrompt = ""          -- Prompt message (Save: or Load:)
-local inputError = ""          -- Error message for dialog
+local inputText = ""               -- Text being typed
+local inputCursor = 0             -- Cursor position in input text
+local inputPrompt = ""             -- Prompt text ("Save: " or "Load: ")
+local inputError = ""              -- Error message to display
 local blinkT = 0               -- Cursor blink timer (like TextPad)
+
+-- Current file tracking
+local currentFileName = ""       -- Name of currently loaded file (for quick save)
 
 -- Grid playback variables
 sequencer.isPlaying = false
@@ -1148,27 +1098,179 @@ local function addNewColumn()
     end
 end
 
--- Helper function to convert table to string (simple implementation)
+-- Helper function to trim whitespace
+local function trim(str)
+    return str:match("^%s*(.-)%s*$")
+end
+
+-- Function to clear the grid
+local function clearGrid()
+    for channel = 1, 8 do
+        for column = 1, sequencer.totalColumns do
+            sequencer.grid[channel][column].active = false
+            sequencer.grid[channel][column].note = nil
+            sequencer.grid[channel][column].mode = 1
+            sequencer.grid[channel][column].duration = 0.5
+        end
+    end
+end
+
+-- Helper function to convert table to string (fixed implementation)
 local function tableToString(t, indent)
     indent = indent or ""
     local result = "{\n"
     
     for k, v in pairs(t) do
-        if type(v) == "table" then
-            result = result .. indent .. "  [" .. tostring(k) .. "] = " .. tableToString(v, indent .. "  ") .. ",\n"
-        elseif type(v) == "string" then
-            result = result .. indent .. "  [" .. tostring(k) .. "] = \"" .. tostring(v) .. "\",\n"
+        local keyStr = ""
+        if type(k) == "string" then
+            keyStr = "[\"" .. k .. "\"]"
+        elseif type(k) == "number" then
+            keyStr = "[" .. k .. "]"
         else
-            result = result .. indent .. "  [" .. tostring(k) .. "] = " .. tostring(v) .. ",\n"
+            keyStr = "[" .. tostring(k) .. "]"
         end
+        
+        local valueStr = ""
+        if type(v) == "table" then
+            valueStr = tableToString(v, indent .. "  ")
+        elseif type(v) == "string" then
+            valueStr = "\"" .. v:gsub("\\", "\\\\"):gsub("\"", "\\\"") .. "\""
+        elseif type(v) == "boolean" then
+            valueStr = tostring(v)
+        else
+            valueStr = tostring(v)
+        end
+        
+        result = result .. indent .. "  " .. keyStr .. " = " .. valueStr .. ",\n"
     end
     
     result = result .. indent .. "}"
     return result
 end
 
+-- Function to execute save with specific filename (for quick save)
+local function executeSaveWithFileName(filename)
+    -- Add .wavy extension if not present
+    if not filename:match("%.wavy$") then
+        filename = filename .. ".wavy"
+    end
+    
+    -- Check if file already exists
+    local cwd = VFS:GetRoot()
+    local existingFile = VFS:FindChild(cwd, filename)
+    
+    if existingFile then
+        print("OVERWRITE: Updating existing file " .. filename)
+    else
+        print("CREATE: Creating new file " .. filename)
+    end
+    
+    -- Create clip data structure
+    local clipData = {
+        version = "1.0",
+        totalColumns = sequencer.totalColumns,
+        bpm = sequencer.bpm,
+        grid = {}
+    }
+    
+    -- Copy all grid data
+    for channel = 1, 8 do
+        clipData.grid[channel] = {}
+        for column = 1, sequencer.totalColumns do
+            local cell = sequencer.grid[channel][column]
+            clipData.grid[channel][column] = {
+                active = cell.active,
+                note = cell.note,
+                mode = cell.mode
+            }
+        end
+    end
+    
+    -- Convert to JSON-like string for storage (more reliable)
+    local clipString = "-- RetroMixer Clip v1.0\n"
+    clipString = clipString .. "totalColumns = " .. sequencer.totalColumns .. "\n"
+    clipString = clipString .. "bpm = " .. sequencer.bpm .. "\n"
+    clipString = clipString .. "grid = {}\n"
+    
+    for channel = 1, 8 do
+        clipString = clipString .. "grid[" .. channel .. "] = {}\n"
+        for column = 1, sequencer.totalColumns do
+            local cell = sequencer.grid[channel][column]
+            clipString = clipString .. "grid[" .. channel .. "][" .. column .. "] = {\n"
+            clipString = clipString .. "  active = " .. tostring(cell.active) .. ",\n"
+            clipString = clipString .. "  note = " .. (cell.note and "\"" .. cell.note .. "\"" or "nil") .. ",\n"
+            clipString = clipString .. "  mode = " .. cell.mode .. ",\n"
+            clipString = clipString .. "  duration = " .. cell.duration .. "\n"
+            clipString = clipString .. "}\n"
+        end
+    end
+    
+    -- Debug: Print what we're saving
+    print("DEBUG: Saving clip with " .. sequencer.totalColumns .. " columns, BPM: " .. sequencer.bpm)
+    print("CLIP STRING LENGTH: " .. #clipString)
+    print("CLIP CONTENTS: " .. clipString:sub(1, 300) .. (clipString:len() > 300 and "..." or ""))
+    -- Count active notes
+    local activeNotes = 0
+    for channel = 1, 8 do
+        for column = 1, sequencer.totalColumns do
+            if sequencer.grid[channel][column].active then
+                activeNotes = activeNotes + 1
+            end
+        end
+    end
+    print("DEBUG: Total active notes: " .. activeNotes)
+    
+    -- Save to VFS (create or overwrite)
+    if VFS and VFS.CreateFile then
+        -- Get current directory (like TextPad)
+        local cwd = VFS:GetRoot()  -- Use root directory for now
+        local newNode = nil
+        
+        if existingFile then
+            -- Overwrite existing file
+            existingFile.data = clipString
+            newNode = existingFile
+        else
+            -- Create new file
+            newNode = VFS:CreateFile(cwd, filename, BD.NT_TXT, clipString)
+        end
+        
+        if newNode then
+            -- Save system state (like TextPad)
+            local saved = SaveSystem:Save(OSConfig)
+            if saved then
+                -- Update current filename
+                currentFileName = filename
+                if CLI and CLI._out then
+                    CLI:_out("CLIP SAVED: " .. filename .. " (" .. sequencer.totalColumns .. " columns)", Color(100, 255, 100))
+                end
+            else
+                if CLI and CLI._out then
+                    CLI:_out("SAVE ERROR: Could not save system state", Color(255, 100, 100))
+                end
+            end
+        else
+            if CLI and CLI._out then
+                CLI:_out("SAVE ERROR: Could not create file", Color(255, 100, 100))
+            end
+        end
+    else
+        if CLI and CLI._out then
+            CLI:_out("SAVE ERROR: VFS not available", Color(255, 100, 100))
+        end
+    end
+end
+
 -- Function to start save input dialog
 local function startSaveDialog()
+    -- If we have a current file, save directly without asking
+    if currentFileName and currentFileName ~= "" then
+        print("QUICK SAVE: Saving to " .. currentFileName)
+        executeSaveWithFileName(currentFileName)
+        return
+    end
+    
+    -- Otherwise, ask for filename
     inputMode = "save"
     inputText = ""
     inputCursor = 0
@@ -1183,76 +1285,26 @@ local function executeSave()
     inputError = ""
     
     if filename and filename ~= "" then
-        -- Add .wavy extension if not present
-        if not filename:match("%.wavy$") then
-            filename = filename .. ".wavy"
-        end
+        executeSaveWithFileName(filename)
         
-        -- Create clip data structure
-        local clipData = {
-            version = "1.0",
-            totalColumns = sequencer.totalColumns,
-            bpm = sequencer.bpm,
-            grid = {}
-        }
-        
-        -- Copy all grid data
-        for channel = 1, 8 do
-            clipData.grid[channel] = {}
-            for column = 1, sequencer.totalColumns do
-                local cell = sequencer.grid[channel][column]
-                clipData.grid[channel][column] = {
-                    active = cell.active,
-                    note = cell.note,
-                    mode = cell.mode
-                }
-            end
-        end
-        
-        -- Convert to string for storage
-        local clipString = "return " .. tableToString(clipData)
-        
-        -- Save to VFS (like TextPad does)
-        if VFS and VFS.CreateFile then
-            -- Get current directory (like TextPad)
-            local cwd = VFS:GetRoot()  -- Use root directory for now
-            local newNode = VFS:CreateFile(cwd, filename, BD.NT_TXT, clipString)
-            if newNode then
-                -- Save system state (like TextPad)
-                local saved = SaveSystem:Save(OSConfig)
-                if saved then
-                    if CLI and CLI._out then
-                        CLI:_out("CLIP SAVED: " .. filename .. " (" .. sequencer.totalColumns .. " columns)", Color(100, 255, 100))
-                    end
-                else
-                    if CLI and CLI._out then
-                        CLI:_out("SAVE ERROR: Could not save system state", Color(255, 100, 100))
-                    end
-                    inputError = "System save failed"
-                end
-            else
-                if CLI and CLI._out then
-                    CLI:_out("SAVE ERROR: Could not create " .. filename, Color(255, 100, 100))
-                end
-                inputError = "Could not create file"
-            end
-        end
+        -- Exit input mode
+        inputMode = false
+        inputText = ""
+        inputCursor = 0
+        inputError = ""
     else
         if CLI and CLI._out then
-            CLI:_out("SAVE CANCELLED: No filename provided", Color(255, 100, 100))
+            CLI:_out("SAVE ERROR: No filename provided", Color(255, 100, 100))
         end
         inputError = "No filename provided"
     end
-    
-    -- Exit input mode
-    inputMode = false
-    inputText = ""
-    inputCursor = 0
-    inputError = ""
 end
 
 -- Function to start load input dialog
 local function startLoadDialog()
+    if CLI and CLI._out then
+        CLI:_out("DEBUG: startLoadDialog() called", Color(255, 255, 0))
+    end
     inputMode = "load"
     inputText = ""
     inputCursor = 0
@@ -1260,12 +1312,44 @@ local function startLoadDialog()
     inputError = ""
 end
 
+-- Helper function to find file with space-to-underscore conversion (like CLI)
+local function findFileWithSpaces(directory, filename)
+    -- First try exact match
+    local exactMatch = VFS:FindChild(directory, filename)
+    if exactMatch then
+        return exactMatch
+    end
+    
+    -- If not found, try replacing spaces with underscores
+    local underscoreName = filename:gsub(" ", "_")
+    local underscoreMatch = VFS:FindChild(directory, underscoreName)
+    if underscoreMatch then
+        return underscoreMatch
+    end
+    
+    -- If still not found, try replacing underscores with spaces
+    local spaceName = filename:gsub("_", " ")
+    local spaceMatch = VFS:FindChild(directory, spaceName)
+    if spaceMatch then
+        return spaceMatch
+    end
+    
+    return nil
+end
+
 -- Function to execute load (when user presses Enter in load dialog)
 local function executeLoad()
+    if CLI and CLI._out then
+        CLI:_out("DEBUG: executeLoad() called with inputText: '" .. inputText .. "'", Color(255, 255, 0))
+    end
     local filename = inputText:match("^%s*(.-)%s*$")  -- Trim whitespace
     
     -- Clear any previous error
     inputError = ""
+    
+    if CLI and CLI._out then
+        CLI:_out("DEBUG: Processing filename: '" .. (filename or "nil") .. "'", Color(255, 255, 0))
+    end
     
     if filename and filename ~= "" then
         -- Add .wavy extension if not present (user might type "hola" or "hola.wavy")
@@ -1273,17 +1357,17 @@ local function executeLoad()
             filename = filename .. ".wavy"
         end
         
-        -- Load from VFS (like TextPad does)
+        -- Load from VFS using findFileWithSpaces
         if VFS and VFS.FindChild then
             -- Get current directory (like TextPad)
             local cwd = VFS:GetRoot()  -- Use root directory for now
             
-            local fileNode = VFS:FindChild(cwd, filename)
+            local fileNode = findFileWithSpaces(cwd, filename)
             
             if fileNode then
                 local clipString = fileNode.data
                 
-                if clipString then
+                if clipString and clipString ~= "" then
                     -- Execute the string to get clip data
                     local success, clipData = pcall(function()
                         return load(clipString)()
@@ -1684,9 +1768,9 @@ function RetroMixer:HandleKey(name, shift, ctrl)
             end
             return
         elseif name == "Backspace" then
-            -- Handle backspace
+            -- Handle backspace like TextPad
             if inputCursor > 0 then
-                inputText = inputText:sub(1, inputCursor) .. inputText:sub(inputCursor + 2)
+                inputText = inputText:sub(1, inputCursor-1) .. inputText:sub(inputCursor+1)
                 inputCursor = inputCursor - 1
             end
             return
@@ -1709,30 +1793,10 @@ function RetroMixer:HandleKey(name, shift, ctrl)
         end
         
         -- Handle alphanumeric input
-        if #name == 1 and name >= "A" and name <= "Z" then
-            -- Uppercase letter
-            local char = shift and name or name:lower()
+        -- Handle printable characters using Utils (like TextPad)
+        local char = Utils:InputToChar(name, shift)
+        if char then
             inputText = inputText:sub(1, inputCursor) .. char .. inputText:sub(inputCursor + 1)
-            inputCursor = inputCursor + 1
-            return
-        elseif #name == 1 and name >= "0" and name <= "9" then
-            -- Number
-            inputText = inputText:sub(1, inputCursor) .. name .. inputText:sub(inputCursor + 1)
-            inputCursor = inputCursor + 1
-            return
-        elseif name == "Space" then
-            -- Space bar
-            inputText = inputText:sub(1, inputCursor) .. " " .. inputText:sub(inputCursor + 1)
-            inputCursor = inputCursor + 1
-            return
-        elseif name == "Minus" then
-            -- Hyphen for filenames
-            inputText = inputText:sub(1, inputCursor) .. "-" .. inputText:sub(inputCursor + 1)
-            inputCursor = inputCursor + 1
-            return
-        elseif name == "Underscore" then
-            -- Underscore for filenames
-            inputText = inputText:sub(1, inputCursor) .. "_" .. inputText:sub(inputCursor + 1)
             inputCursor = inputCursor + 1
             return
         end
@@ -1784,6 +1848,9 @@ function RetroMixer:HandleKey(name, shift, ctrl)
             return
         elseif name == "O" then
             -- Start load dialog
+            if CLI and CLI._out then
+                CLI:_out("DEBUG: Ctrl+O detected - starting load dialog", Color(255, 255, 0))
+            end
             startLoadDialog()
             return
         elseif name == "N" then
@@ -1964,8 +2031,8 @@ function RetroMixer:Update()
     -- Process audio (keep existing audio processing)
     pcall(processAudio)
     
-    -- Update sequencer (keep existing sequencer logic)
-    pcall(updateSequencer)
+    -- Update sequencer (using new grid system)
+    -- pcall(updateSequencer) -- Deprecated
     
     -- Update grid playback timer
     if sequencer.isPlaying then
@@ -1997,28 +2064,187 @@ end
 
 ---------------------------------------------------------------------------
 -- Initialization
-function RetroMixer:Init(video, font, theme, onClose)
+function RetroMixer:Init(video, font, theme, onClose, fileNode)
+    print("=== RETROMIXER INIT CALLED ===")
+    print("fileNode:", fileNode and "EXISTS" or "NIL")
     
     _video = video
     _font = font
     _theme = theme
     _onClose = onClose
     
+    -- Load clip if fileNode is provided (like TextPad)
+    if fileNode and fileNode.data and fileNode.data ~= "" then
+        print("Loading clip: " .. fileNode.name)
+        print("FILE DATA LENGTH: " .. #fileNode.data)
+        print("FILE CONTENTS: " .. fileNode.data:sub(1, 200) .. (fileNode.data:len() > 200 and "..." or ""))
+        
+        -- Parse the simple format (manual parsing)
+        local clipData = {}
+        local success = true
+        
+        -- Initialize defaults
+        local totalColumns = 8
+        local bpm = 120
+        local grid = {}
+        
+        -- Parse the file manually (no load() needed)
+        local lines = {}
+        for line in fileNode.data:gmatch("[^\r\n]+") do
+            table.insert(lines, line)
+        end
+        
+        for _, line in ipairs(lines) do
+            line = trim(line)
+            if line:sub(1, 1) == "-" then
+                -- Comment line, skip
+            elseif line:find("^totalColumns%s*=%s*(%d+)") then
+                totalColumns = tonumber(line:match("^totalColumns%s*=%s*(%d+)"))
+            elseif line:find("^bpm%s*=%s*(%d+)") then
+                bpm = tonumber(line:match("^bpm%s*=%s*(%d+)"))
+            end
+        end
+        
+        -- Initialize grid structure
+        for channel = 1, 8 do
+            grid[channel] = {}
+            for column = 1, totalColumns do
+                grid[channel][column] = {
+                    active = false,
+                    note = nil,
+                    mode = 1,
+                    duration = 0.5
+                }
+            end
+        end
+        
+        -- Parse grid data
+        local currentChannel = nil
+        local currentColumn = nil
+        local currentCell = nil
+        
+        for _, line in ipairs(lines) do
+            line = trim(line)
+            
+            if line:find("^grid%[(%d+)%]%s*=%s*{}") then
+                currentChannel = tonumber(line:match("^grid%[(%d+)%]"))
+            elseif currentChannel and line:find("^grid%[%d+%]%[(%d+)%]%s*=%s*{") then
+                currentColumn = tonumber(line:match("^grid%[%d+%]%[(%d+)%]"))
+                currentCell = {}
+            elseif currentChannel and currentColumn and line:find("^%s*active%s*=%s*(%w+)") then
+                local activeStr = line:match("^%s*active%s*=%s*(%w+)")
+                currentCell.active = (activeStr == "true")
+            elseif currentChannel and currentColumn and line:find("^%s*note%s*=%s*\"(.*)\"") then
+                local note = line:match("^%s*note%s*=%s*\"(.*)\"")
+                currentCell.note = note ~= "nil" and note or nil
+            elseif currentChannel and currentColumn and line:find("^%s*mode%s*=%s*(%d+)") then
+                currentCell.mode = tonumber(line:match("^%s*mode%s*=%s*(%d+)"))
+            elseif currentChannel and currentColumn and line:find("^%s*duration%s*=%s*(%d+%.%d+)") then
+                currentCell.duration = tonumber(line:match("^%s*duration%s*=%s*(%d+%.%d+)"))
+            elseif currentChannel and currentColumn and line:find("^%s*duration%s*=%s*(%d+)") then
+                currentCell.duration = tonumber(line:match("^%s*duration%s*=%s*(%d+)"))
+            elseif currentChannel and currentColumn and line:find("^}$") then
+                -- End of cell definition
+                if currentCell then
+                    grid[currentChannel][currentColumn] = currentCell
+                end
+                currentCell = nil
+                currentColumn = nil
+            end
+        end
+        
+        clipData = {
+            totalColumns = totalColumns,
+            bpm = bpm,
+            grid = grid
+        }
+        
+        print("PARSED: totalColumns=" .. totalColumns .. " bpm=" .. bpm)
+        print("GRID CELLS: " .. #grid .. " channels")
+        
+        print("LOAD RESULT: success=" .. tostring(success))
+        
+        if success and clipData then
+            -- Debug: Print what we're loading
+            print("DEBUG: Loading clip with " .. (clipData.totalColumns or "unknown") .. " columns, BPM: " .. (clipData.bpm or "unknown"))
+            -- Count active notes in loaded data
+            local activeNotes = 0
+            if clipData.grid then
+                for channel = 1, 8 do
+                    if clipData.grid[channel] then
+                        for column, cellData in pairs(clipData.grid[channel]) do
+                            if cellData.active then
+                                activeNotes = activeNotes + 1
+                            end
+                        end
+                    end
+                end
+            end
+            print("DEBUG: Total active notes in file: " .. activeNotes)
+            
+            -- Expand columns if needed
+            local requiredColumns = clipData.totalColumns or 8
+            if requiredColumns > sequencer.totalColumns then
+                -- Add missing columns
+                for i = sequencer.totalColumns + 1, requiredColumns do
+                    addNewColumn()
+                end
+            end
+            
+            -- Load BPM if available
+            if clipData.bpm then
+                sequencer.bpm = clipData.bpm
+            end
+            
+            -- Clear grid first
+            clearGrid()
+            
+            -- Load the clip data
+            local loadedCells = 0
+            for channel = 1, 8 do
+                if clipData.grid and clipData.grid[channel] then
+                    for column, cellData in pairs(clipData.grid[channel]) do
+                        if sequencer.grid[channel] and sequencer.grid[channel][column] then
+                            sequencer.grid[channel][column].active = cellData.active or false
+                            sequencer.grid[channel][column].note = cellData.note
+                            sequencer.grid[channel][column].mode = cellData.mode or 1
+                            sequencer.grid[channel][column].duration = cellData.duration or 0.5
+                            loadedCells = loadedCells + 1
+                            
+                            -- Debug: Print each loaded cell
+                            if cellData.active then
+                                print("DEBUG: Loaded CH" .. channel .. " COL" .. column .. " note:" .. (cellData.note or "nil") .. " mode:" .. (cellData.mode or 1))
+                            end
+                        end
+                    end
+                end
+            end
+            
+            print("DEBUG: Total cells processed: " .. loadedCells)
+            
+            print("LOADED: " .. fileNode.name .. " (loaded successfully)")
+            -- Update current filename for quick save
+            currentFileName = fileNode.name
+        else
+            print("LOAD ERROR: Invalid clip format in " .. fileNode.name)
+        end
+    end
+    
     -- Initialize audio chip
     pcall(function() _audioChip = gdt.AudioChip0 end)
     
-    -- Initialize sequencer grid safely
-    if not synthState.sequencerGrid then
-        synthState.sequencerGrid = {}
-    end
-    for beat = 1, MAX_SEQUENCER_STEPS do
-        if not synthState.sequencerGrid[beat] then
-            synthState.sequencerGrid[beat] = {}
-        end
-        for note = 1, 8 do
-            synthState.sequencerGrid[beat][note] = false
-        end
-    end
+    -- Initialize sequencer grid safely (deprecated - using new system)
+    -- if not synthState.sequencerGrid then
+    --     synthState.sequencerGrid = {}
+    -- end
+    -- for beat = 1, MAX_SEQUENCER_STEPS do
+    --     if not synthState.sequencerGrid[beat] then
+    --         synthState.sequencerGrid[beat] = {}
+    --     end
+    --     for note = 1, 8 do
+    --         synthState.sequencerGrid[beat][note] = false
+    --     end
+    -- end
     
     -- Load first preset safely
     if presets and #presets > 0 then

@@ -197,7 +197,7 @@ function CLI:_execute(cmdStr)
         self:_out("  cat <name>         Print file contents", _theme.output)
         self:_out("  run TextPad [file] Open text editor", _theme.output)
         self:_out("  run ai             Open AI chat", _theme.output)
-        self:_out("  run mixer         Open RetroWave synthesizer", _theme.output)
+        self:_out("  run mixer [file]  Open RetroWave synthesizer", _theme.output)
         self:_out("  sys               Open system & network info", _theme.output)
         self:_out("  game <n>        Launch a game", _theme.output)
         self:_out("  theme <0-9>        Change visual theme", _theme.output)
@@ -331,7 +331,7 @@ function CLI:_execute(cmdStr)
 
     elseif cmd == "run" then
         if not arg1 then
-            self:_out("Usage: run TextPad [filename] | run AI | run mixer", _theme.error)
+            self:_out("Usage: run TextPad [file] | run AI | run mixer [file]", _theme.error)
         elseif arg1:lower() == "textpad" then
             local fileNode = nil
             if arg2 then
@@ -355,8 +355,18 @@ function CLI:_execute(cmdStr)
         elseif arg1:lower() == "ai" then
             if _onLaunch then _onLaunch("AIChat", nil) end
         elseif arg1:lower() == "mixer" then
+            local fileNode = nil
+            if arg2 then
+                fileNode = findFileWithSpaces(cwd, arg2)
+                if fileNode then
+                    self:_out("Loading clip: " .. arg2, _theme.success)
+                else
+                    self:_out("Clip not found: " .. arg2, _theme.error)
+                    fileNode = nil
+                end
+            end
             self:_out("Launching RetroMixer...", _theme.success)
-            if _onLaunch then _onLaunch("RetroMixer", nil) end
+            if _onLaunch then _onLaunch("RetroMixer", fileNode) end
         else
             self:_out("Unknown app: " .. arg1, _theme.error)
             self:_out("Available apps: TextPad, AI, mixer", _theme.dim)
