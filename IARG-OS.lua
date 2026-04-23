@@ -405,13 +405,13 @@ function eventChannel1(sender, event)
         elseif activeApp == "chess" then
             Chess:HandleKey(name, event.Shift, event.Ctrl)
         elseif activeApp == "sysinfo" then
-            SystemInfo:HandleKey(name, event.Shift, event.Ctrl)
+            SystemInfo:HandleKey(name, _shiftHeld, _ctrlHeld)
         elseif activeApp == "retromixer" then
             -- Debug: Show key being sent to RetroMixer
             CLI:_out("SEND: " .. name .. " to RetroMixer", Color(0, 255, 255))
             RetroMixer:HandleKey(name, _shiftHeld, _ctrlHeld)
         else
-            CLI:HandleKey(name, event.Shift, event.Ctrl)
+            CLI:HandleKey(name, _shiftHeld, _ctrlHeld)
         end
     else
         -- Key release - only for CLI smooth scroll

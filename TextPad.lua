@@ -22,6 +22,7 @@ local curCol    = 1     -- cursor column (1-based)
 local scrollTop = 1     -- first visible line
 local dirty     = false
 local blinkT    = 0
+local exitConfirmMode = false -- Confirmation mode for ESC
 
 -- Edit area dimensions
 local EDIT_X  = 2
@@ -48,6 +49,7 @@ function TextPad:Init(videoChip, font, themeData, fileNode, currentDir, onCloseC
     _currentDir = currentDir or VFS:GetRoot()
     dirty       = false
     blinkT      = 0
+    exitConfirmMode = false
 
     -- Initialize layout constants (BD values are final at this point)
     EDIT_Y  = BD.CONTENT_Y + 2
@@ -294,8 +296,14 @@ function TextPad:HandleKey(inputName, shift, ctrl)
             return
         end
         if inputName == "Return" or inputName == "KeypadEnter" then
-            self:_executeSaveAs()
-            return
+            if exitConfirmMode then
+                -- Confirm exit without saving
+                if _onClose then _onClose(false) end
+                return
+            else
+                self:_executeSaveAs()
+                return
+            end
         end
         if inputName == "Backspace" then
             if saveAsCursor > 0 then
@@ -326,9 +334,21 @@ function TextPad:HandleKey(inputName, shift, ctrl)
 
     -- ── Normal mode ────────────────────────────────────────────────────
 
-    -- Esc = exit without saving
+    -- Esc = exit with confirmation if dirty
     if inputName == "Escape" then
-        if _onClose then _onClose(false) end
+        if exitConfirmMode then
+            -- Cancel confirmation
+            exitConfirmMode = false
+        else
+            -- Check if there are unsaved changes
+            if dirty then
+                -- Enter confirmation mode
+                exitConfirmMode = true
+            else
+                -- No changes, exit directly
+                if _onClose then _onClose(false) end
+            end
+        end
         return
     end
 
@@ -435,17 +455,24 @@ function TextPad:HandleKey(inputName, shift, ctrl)
         return
     end
 
-    -- Enter -- new line
+    -- Enter -- check for confirmation mode first
     if inputName == "Return" or inputName == "KeypadEnter" then
-        local l      = lines[curLine]
-        local before = l:sub(1, curCol-1)
-        local after  = l:sub(curCol)
-        lines[curLine] = before
-        table.insert(lines, curLine+1, after)
-        curLine = curLine + 1
-        curCol  = 1
-        dirty   = true
-        self:_ensureVisible(); return
+        if exitConfirmMode then
+            -- Confirm exit without saving
+            if _onClose then _onClose(false) end
+            return
+        else
+            -- Normal Enter behavior - new line
+            local l      = lines[curLine]
+            local before = l:sub(1, curCol-1)
+            local after  = l:sub(curCol)
+            lines[curLine] = before
+            table.insert(lines, curLine+1, after)
+            curLine = curLine + 1
+            curCol  = 1
+            dirty   = true
+            self:_ensureVisible(); return
+        end
     end
 
     -- Tab = 4 spaces
@@ -571,6 +598,63 @@ function TextPad:Draw()
     local stat = "Ln "..curLine.."/"..#lines.."  Col "..curCol
               .."  ["..#self:_serialize().."/"..BD.TP_MAX_CHARS.." ch]"
     self:_tprint(EDIT_X, statY, stat, _theme.dim)
+    
+    -- Draw exit confirmation dialog if active
+    if exitConfirmMode then
+        self:_drawExitConfirmation()
+    end
+end
+
+---------------------------------------------------------------------------
+-- Draw exit confirmation dialog
+
+function TextPad:_drawExitConfirmation()
+    -- Draw confirmation dialog
+    local dialogWidth = 220
+    local dialogHeight = 80
+    local dialogX = (336 - dialogWidth) / 2 -- Center horizontally
+    local dialogY = (224 - dialogHeight) / 2 -- Center vertically
+    
+    -- Draw dialog background with safe colors
+    local bgColor = _theme.bg or Color(50, 50, 50)
+    local borderColor = _theme.text or Color(255, 255, 255)
+    local errorColor = _theme.error or Color(255, 100, 100)
+    local dimColor = _theme.dim or Color(150, 150, 150)
+    
+    _video:FillRect(vec2(dialogX, dialogY), vec2(dialogX + dialogWidth, dialogY + dialogHeight), bgColor)
+    _video:DrawRect(vec2(dialogX, dialogY), vec2(dialogX + dialogWidth, dialogY + dialogHeight), borderColor)
+    
+    -- Draw dialog text with safe color fallbacks
+    local title = "UNSAVED CHANGES"
+    local message = "You have unsaved changes!"
+    local instruction = "Enter: Exit  Esc: Cancel"
+    
+    -- Use safe text drawing function
+    if _font and _video then
+        -- Title
+        local titleX = dialogX + (dialogWidth - #title * 4) / 2
+        for i = 1, #title do
+            local ch = title:sub(i, i)
+            _video:DrawSprite(vec2(titleX + (i-1)*4, dialogY + 15), _font,
+                ch:byte()%32, math.floor(ch:byte()/32), errorColor, color.clear)
+        end
+        
+        -- Message
+        local messageX = dialogX + (dialogWidth - #message * 4) / 2
+        for i = 1, #message do
+            local ch = message:sub(i, i)
+            _video:DrawSprite(vec2(messageX + (i-1)*4, dialogY + 30), _font,
+                ch:byte()%32, math.floor(ch:byte()/32), dimColor, color.clear)
+        end
+        
+        -- Instruction
+        local instructionX = dialogX + (dialogWidth - #instruction * 4) / 2
+        for i = 1, #instruction do
+            local ch = instruction:sub(i, i)
+            _video:DrawSprite(vec2(instructionX + (i-1)*4, dialogY + 50), _font,
+                ch:byte()%32, math.floor(ch:byte()/32), dimColor, color.clear)
+        end
+    end
 end
 
 ---------------------------------------------------------------------------

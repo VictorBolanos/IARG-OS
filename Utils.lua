@@ -46,7 +46,7 @@ function Utils:InputToChar(name, shift)
         K="k",L="l",M="m",N="n",O="o",P="p",Q="q",R="r",S="s",T="t",
         U="u",V="v",W="w",X="x",Y="y",Z="z"
     }
-    if letters[name] then return shift and name or letters[name] end
+    if letters[name] then return shift and string.upper(letters[name]) or letters[name] end
 
     -- Digits
     local nums = {

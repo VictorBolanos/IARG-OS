@@ -109,6 +109,33 @@ function CLI:_out(txt, col)
 end
 
 ---------------------------------------------------------------------------
+-- Helper function to find file with space-to-underscore conversion
+
+local function findFileWithSpaces(directory, filename)
+    -- First try exact match
+    local exactMatch = VFS:FindChild(directory, filename)
+    if exactMatch then
+        return exactMatch
+    end
+    
+    -- If not found, try replacing spaces with underscores
+    local underscoreName = filename:gsub(" ", "_")
+    local underscoreMatch = VFS:FindChild(directory, underscoreName)
+    if underscoreMatch then
+        return underscoreMatch
+    end
+    
+    -- If still not found, try replacing underscores with spaces
+    local spaceName = filename:gsub("_", " ")
+    local spaceMatch = VFS:FindChild(directory, spaceName)
+    if spaceMatch then
+        return spaceMatch
+    end
+    
+    return nil
+end
+
+---------------------------------------------------------------------------
 -- Init
 
 function CLI:Init(video, font, themeData, keyboard, onLaunch)
@@ -252,7 +279,7 @@ function CLI:_execute(cmdStr)
         if not arg1 then
             self:_out("Usage: rm <name>", _theme.error)
         else
-            local target = VFS:FindChild(cwd, arg1)
+            local target = findFileWithSpaces(cwd, arg1)
             if not target then
                 self:_out("Not found: " .. arg1, _theme.error)
             elseif target.type == BD.NT_FOLDER and #target.children > 0 then
@@ -268,7 +295,7 @@ function CLI:_execute(cmdStr)
         if not arg1 or not arg2 then
             self:_out("Usage: rename <old_name> <new_name>", _theme.error)
         else
-            local target = VFS:FindChild(cwd, arg1)
+            local target = findFileWithSpaces(cwd, arg1)
             if not target then
                 self:_out("Not found: " .. arg1, _theme.error)
             else
@@ -282,7 +309,7 @@ function CLI:_execute(cmdStr)
         if not arg1 then
             self:_out("Usage: cat <filename>", _theme.error)
         else
-            local target = VFS:FindChild(cwd, arg1)
+            local target = findFileWithSpaces(cwd, arg1)
             if not target then
                 self:_out("Not found: " .. arg1, _theme.error)
             elseif target.type == BD.NT_FOLDER then
@@ -308,7 +335,7 @@ function CLI:_execute(cmdStr)
         elseif arg1:lower() == "textpad" then
             local fileNode = nil
             if arg2 then
-                fileNode = VFS:FindChild(cwd, arg2)
+                fileNode = findFileWithSpaces(cwd, arg2)
                 if not fileNode then
                     fileNode = VFS:CreateFile(cwd, arg2, BD.NT_TXT, "")
                     if fileNode then
@@ -321,12 +348,8 @@ function CLI:_execute(cmdStr)
                     fileNode = nil
                 end
             else
-                local defaultName = "untitled.txt"
-                fileNode = VFS:CreateFile(cwd, defaultName, BD.NT_TXT, "")
-                if fileNode then
-                    self:_out("Created: " .. defaultName, _theme.dim)
-                    SaveSystem:Save(OSConfig)
-                end
+                -- No file specified - create untitled node in memory only
+                fileNode = nil -- Don't create any file until user saves manually
             end
             if _onLaunch then _onLaunch("TextPad", fileNode) end
         elseif arg1:lower() == "ai" then

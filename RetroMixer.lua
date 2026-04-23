@@ -840,8 +840,6 @@ local function drawHelpScreen()
         tp(10, y, "  Up/Down: Change Channel (Row 1-8)", getThemeColor("text"))
         y = y + lineHeight
         tp(10, y, "  Left/Right: Change Step (Column)", getThemeColor("text"))
-        y = y + lineHeight
-        tp(10, y, "  Auto-scroll: Keeps selector visible", getThemeColor("text"))
         y = y + lineHeight + 3
         
         tp(10, y, "CELL ACTIONS:", getThemeColor("success"))
@@ -871,14 +869,6 @@ local function drawHelpScreen()
         y = y + lineHeight
         tp(10, y, "  5: Sharp - Brighter tone", getThemeColor("text"))
         y = y + lineHeight + 3
-        
-        tp(10, y, "GRID FEATURES:", getThemeColor("success"))
-        y = y + lineHeight
-        tp(10, y, "  8 Channels (rows) x Unlimited columns", getThemeColor("text"))
-        y = y + lineHeight
-        tp(10, y, "  12 columns visible at once", getThemeColor("text"))
-        y = y + lineHeight
-        tp(10, y, "  Intelligent looping", getThemeColor("text"))
     
     -- Page 3: Playback & Column Management
     elseif helpPage == 3 then
@@ -888,12 +878,6 @@ local function drawHelpScreen()
         tp(10, y, "PLAYBACK:", getThemeColor("success"))
         y = y + lineHeight
         tp(10, y, "  Space: Play/Stop Sequence", getThemeColor("text"))
-        y = y + lineHeight
-        tp(10, y, "  Plays all notes in current column", getThemeColor("text"))
-        y = y + lineHeight
-        tp(10, y, "  Auto-loops at last note column", getThemeColor("text"))
-        y = y + lineHeight
-        tp(10, y, "  BPM: 120 beats per minute", getThemeColor("text"))
         y = y + lineHeight + 3
         
         tp(10, y, "COLUMN MANAGEMENT:", getThemeColor("success"))
@@ -902,7 +886,6 @@ local function drawHelpScreen()
         y = y + lineHeight
         tp(10, y, "  Ctrl+Left/Right: Scroll view", getThemeColor("text"))
         y = y + lineHeight
-        tp(10, y, "  Auto-scroll on navigation", getThemeColor("text"))
     
     -- Page 4: File Operations
     elseif helpPage == 4 then
@@ -914,10 +897,6 @@ local function drawHelpScreen()
         tp(10, y, "  Ctrl+S: Save clip (.wavy format)", getThemeColor("text"))
         y = y + lineHeight
         tp(10, y, "  Ctrl+O: Load clip (.wavy format)", getThemeColor("text"))
-        y = y + lineHeight
-        tp(10, y, "  Enter filename (no .wavy needed)", getThemeColor("text"))
-        y = y + lineHeight
-        tp(10, y, "  Auto-expands columns when loading", getThemeColor("text"))
         y = y + lineHeight + 3
         
         tp(10, y, "OTHER CONTROLS:", getThemeColor("success"))
