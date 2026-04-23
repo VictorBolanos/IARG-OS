@@ -52,7 +52,6 @@ end
 -- Play any AudioSample
 
 function SoundSystem:PlayWav(sample, loop)
-    print("SoundSystem: PlayWav", sample and sample.Name, "loop=" .. tostring(loop))
     if not _chip or not sample then return false end
     self:Stop()
     local ok = false
