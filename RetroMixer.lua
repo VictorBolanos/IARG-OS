@@ -688,6 +688,44 @@ local function updateSequencer()
     end
 end
 
+-- Grid Sequencer Playback Function
+local function updateGridSequencer()
+    if not sequencer.isPlaying then return end
+    
+    -- Update play timer
+    sequencer.playTimer = sequencer.playTimer + (1.0 / 60.0) -- Assuming 60 FPS
+    
+    -- Check if it's time to advance to next step (fixed 0.5s per step)
+    if sequencer.playTimer >= 0.5 then
+        sequencer.playTimer = 0
+        
+        -- Play notes for current step across all channels
+        for channel = 1, 8 do
+            local cell = sequencer.grid[channel][sequencer.currentPlayStep]
+            if cell.active and cell.note then
+                -- Play note with its mode
+                playNoteFromROM(cell.note, cell.mode)
+            end
+        end
+        
+        -- Advance to next step
+        sequencer.currentPlayStep = sequencer.currentPlayStep + 1
+        
+        -- Loop back to beginning if reached end
+        if sequencer.currentPlayStep > sequencer.maxSteps then
+            sequencer.currentPlayStep = 1
+        end
+        
+        -- Auto-scroll to follow playback
+        if sequencer.currentPlayStep > sequencer.scrollOffset + sequencer.visibleSteps then
+            sequencer.scrollOffset = sequencer.currentPlayStep - sequencer.visibleSteps
+        elseif sequencer.currentPlayStep < sequencer.scrollOffset + 1 then
+            sequencer.scrollOffset = sequencer.currentPlayStep - 1
+        end
+    end
+end
+
+
 ---------------------------------------------------------------------------
 -- Utility Functions
 
@@ -789,122 +827,373 @@ local function drawHelpScreen()
     -- Clear screen
     _video:FillRect(vec2(0, BD.CONTENT_Y), vec2(_video.Width - 1, _video.Height - 1), getThemeColor("bg"))
     
-    -- Title
-    tp(10, BD.CONTENT_Y + 2, "RETROWAVE 3000 - MUSICAL KEYBOARD", getThemeColor("success"))
-    
-    local y = BD.CONTENT_Y + 12
+    local y = BD.CONTENT_Y + 2
     local lineHeight = 7
     
-    -- How it works
-    tp(10, y, "HOW IT WORKS:", getThemeColor("success"))
-    y = y + lineHeight
-    tp(10, y, "  18 notes using .wav files from ROM", getThemeColor("text"))
-    y = y + lineHeight
-    tp(10, y, "  Sawtooth 8-bit sound (1 second)", getThemeColor("text"))
-    y = y + lineHeight + 3
+    -- Page 1: Grid Navigation
+    if helpPage == 1 then
+        tp(10, y, "RETROWAVE 3000 - GRID NAVIGATION (1/4)", getThemeColor("success"))
+        y = y + lineHeight + 3
+        
+        tp(10, y, "GRID CONTROLS:", getThemeColor("success"))
+        y = y + lineHeight
+        tp(10, y, "  Up/Down: Change Channel (Row)", getThemeColor("text"))
+        y = y + lineHeight
+        tp(10, y, "  Left/Right: Change Step (Column)", getThemeColor("text"))
+        y = y + lineHeight
+        tp(10, y, "  Tab: Toggle Duration (0.5s/1.0s)", getThemeColor("text"))
+        y = y + lineHeight
+        tp(10, y, "  Ctrl+Arrows: Scroll Horizontal", getThemeColor("text"))
+        y = y + lineHeight + 3
+        
+        tp(10, y, "CELL ACTIONS:", getThemeColor("success"))
+        y = y + lineHeight
+        tp(10, y, "  Enter: Toggle Cell Active/Empty", getThemeColor("text"))
+        y = y + lineHeight
+        tp(10, y, "  Delete: Clear Cell Content", getThemeColor("text"))
+        y = y + lineHeight
+        tp(10, y, "  Q-P,A-L,Z-C: Add Note to Cell", getThemeColor("text"))
     
-    -- Musical keys - Octava 3-5 (fila superior)
-    tp(10, y, "TOP ROW (Q-P): Octavas 3-5", getThemeColor("success"))
-    y = y + lineHeight
-    tp(10, y, "  Q=C3  W=D3  E=E3  R=F3  T=G3", getThemeColor("text"))
-    y = y + lineHeight
-    tp(10, y, "  Y=A4  U=B4  I=C5  O=D5  P=E5", getThemeColor("text"))
-    y = y + lineHeight + 3
+    -- Page 2: Note Modes
+    elseif helpPage == 2 then
+        tp(10, y, "RETROWAVE 3000 - NOTE MODES (2/4)", getThemeColor("success"))
+        y = y + lineHeight + 3
+        
+        tp(10, y, "MODES (1-9 KEYS):", getThemeColor("success"))
+        y = y + lineHeight
+        tp(10, y, "  1: Normal     2: Reverb    3: Delay", getThemeColor("text"))
+        y = y + lineHeight
+        tp(10, y, "  4: Distortion 5: Chorus    6: Flanger", getThemeColor("text"))
+        y = y + lineHeight
+        tp(10, y, "  7: Phaser     8: PitchBend 9: Glissando", getThemeColor("text"))
+        y = y + lineHeight + 3
+        
+        tp(10, y, "HOW TO USE:", getThemeColor("success"))
+        y = y + lineHeight
+        tp(10, y, "  1. Activate cell with Enter", getThemeColor("text"))
+        y = y + lineHeight
+        tp(10, y, "  2. Add note with Q-P,A-L,Z-C", getThemeColor("text"))
+        y = y + lineHeight
+        tp(10, y, "  3. Press 1-9 to apply mode", getThemeColor("text"))
     
-    -- Musical keys - Octava 2-4 (fila media)
-    tp(10, y, "MIDDLE ROW (A-L): Octavas 2-4", getThemeColor("success"))
-    y = y + lineHeight
-    tp(10, y, "  A=A2  S=C4  D=D4  F=E4  G=F4", getThemeColor("text"))
-    y = y + lineHeight
-    tp(10, y, "  H=G4  J=A4  K=B4  L=C5", getThemeColor("text"))
-    y = y + lineHeight + 3
+    -- Page 3: Playback & Files
+    elseif helpPage == 3 then
+        tp(10, y, "RETROWAVE 3000 - PLAYBACK & FILES (3/4)", getThemeColor("success"))
+        y = y + lineHeight + 3
+        
+        tp(10, y, "PLAYBACK:", getThemeColor("success"))
+        y = y + lineHeight
+        tp(10, y, "  Space: Play/Stop Sequence", getThemeColor("text"))
+        y = y + lineHeight
+        tp(10, y, "  BPM: 120 (adjustable)", getThemeColor("text"))
+        y = y + lineHeight
+        tp(10, y, "  8 Channels x 64 Steps Max", getThemeColor("text"))
+        y = y + lineHeight + 3
+        
+        tp(10, y, "FILE OPERATIONS:", getThemeColor("success"))
+        y = y + lineHeight
+        tp(10, y, "  Ctrl+S: Save Pattern (.wavy)", getThemeColor("text"))
+        y = y + lineHeight
+        tp(10, y, "  Ctrl+L: Load Pattern (.wavy)", getThemeColor("text"))
+        y = y + lineHeight
+        tp(10, y, "  C: Clear All Grid", getThemeColor("text"))
     
-    -- Musical keys - Octava 5 extras (fila inferior)
-    tp(10, y, "BOTTOM ROW (Z-C): Octava 5 extras", getThemeColor("success"))
-    y = y + lineHeight
-    tp(10, y, "  Z=D5  X=E5  C=F5", getThemeColor("text"))
-    y = y + lineHeight + 3
+    -- Page 4: Tips & Tricks
+    else
+        tp(10, y, "RETROWAVE 3000 - TIPS & TRICKS (4/4)", getThemeColor("success"))
+        y = y + lineHeight + 3
+        
+        tp(10, y, "QUICK START:", getThemeColor("success"))
+        y = y + lineHeight
+        tp(10, y, "  1. Navigate to CH1,STEP1", getThemeColor("text"))
+        y = y + lineHeight
+        tp(10, y, "  2. Press Enter (activate)", getThemeColor("text"))
+        y = y + lineHeight
+        tp(10, y, "  3. Press Q (adds C3 note)", getThemeColor("text"))
+        y = y + lineHeight
+        tp(10, y, "  4. Press 2 (adds reverb)", getThemeColor("text"))
+        y = y + lineHeight
+        tp(10, y, "  5. Press Space (play)", getThemeColor("text"))
+        y = y + lineHeight + 3
+        
+        tp(10, y, "ADVANCED:", getThemeColor("success"))
+        y = y + lineHeight
+        tp(10, y, "  Create drum patterns on CH1-2", getThemeColor("text"))
+        y = y + lineHeight
+        tp(10, y, "  Use CH5-8 for melodies", getThemeColor("text"))
+        y = y + lineHeight
+        tp(10, y, "  Experiment with modes!", getThemeColor("text"))
+    end
     
-    -- Control keys
-    tp(10, y, "CONTROL KEYS:", getThemeColor("success"))
-    y = y + lineHeight
-    tp(10, y, "  Ctrl+I: Toggle this help screen", getThemeColor("text"))
-    y = y + lineHeight
-    tp(10, y, "  Escape: Exit RetroMixer", getThemeColor("text"))
-    y = y + lineHeight + 3
+    -- Navigation hint at bottom
+    y = BD.CONTENT_Y + 70
+    tp(10, y, "Use Arrow Keys to Navigate Pages | Ctrl+I: Exit Help", getThemeColor("dim"))
+end
+
+-- Initialize sequencer BEFORE drawMainInterface
+local sequencer = {
+    bpm = 120,
+    currentChannel = 1,
+    currentStep = 1,
+    scrollOffset = 0,
+    maxSteps = 64,
+    isPlaying = false,
+    playTimer = 0,
+    currentPlayStep = 1,
+    grid = {}, -- [channel][step] = {note, mode, duration}
+    channels = {},
+    visibleSteps = 8 -- steps visible on screen
+}
+
+-- Note modes with volume and pitch settings (expanded to 5 modes)
+local noteModes = {
+    [1] = "Normal",
+    [2] = "Soft", 
+    [3] = "High",
+    [4] = "Low",
+    [5] = "Sharp"
+}
+
+local modeSettings = {
+    [1] = { name = "Normal", volume = 100, pitch = 1.0 },  -- Standard volume and pitch
+    [2] = { name = "Soft", volume = 50, pitch = 1.0 },     -- Half volume, normal pitch
+    [3] = { name = "High", volume = 100, pitch = 1.5 },     -- Full volume, higher pitch
+    [4] = { name = "Low", volume = 100, pitch = 0.8 },     -- Full volume, lower pitch
+    [5] = { name = "Sharp", volume = 75, pitch = 1.2 }      -- Medium volume, sharp pitch
+}
+
+-- Initialize sequencer grid
+for channel = 1, 8 do
+    sequencer.channels[channel] = {
+        name = "Channel " .. channel,
+        active = true,
+        muted = false
+    }
+    sequencer.grid[channel] = {}
+    for step = 1, sequencer.maxSteps do
+        sequencer.grid[channel][step] = {
+            note = nil,
+            mode = 1,
+            duration = 0.5,
+            active = false,
+            unlocked = false -- New state: unlocked for note input
+        }
+    end
+end
+
+-- Add selector lock state
+sequencer.selectorLocked = false
+
+-- Remember last used mode for new notes
+sequencer.lastUsedMode = 1
+
+
+-- Helper function for drawing main interface
+-- Helper function to get theme color with fallback (like Chess and Tetris)
+local function getThemeColor(colorName)
+    -- Use actual theme properties from IARG Classic
+    if colorName == "bg_desktop" then
+        return _theme.bg or Color(18, 18, 32)
+    elseif colorName == "text_primary" then
+        return _theme.text or Color(220, 220, 240)
+    elseif colorName == "text_secondary" then
+        return _theme.dim or Color(130, 130, 155)
+    elseif colorName == "text_accent" then
+        return _theme.text or Color(80, 200, 255) -- Use text as accent
+    elseif colorName == "text_success" then
+        return _theme.success or Color(80, 220, 120)
+    elseif colorName == "text_warning" then
+        return _theme.error or Color(255, 200, 60)
+    elseif colorName == "bg_panel" then
+        return _theme.bg or Color(12, 12, 24)
+    elseif colorName == "bg_hover" then
+        return _theme.bg or Color(38, 38, 70)
+    elseif colorName == "border" then
+        return _theme.dim or Color(55, 55, 80)
+    elseif colorName == "border_focus" then
+        return _theme.text or Color(80, 200, 255)
+    else
+        return _theme.text or Color(255, 255, 255) -- Default fallback
+    end
+end
+
+local function drawMainInterface()
+    -- Clear screen with theme background (with fallback)
+    _video:FillRect(vec2(0, BD.CONTENT_Y), vec2(_video.Width - 1, _video.Height - 1), getThemeColor("bg_desktop"))
     
-    -- Examples
-    tp(10, y, "EXAMPLES:", getThemeColor("success"))
-    y = y + lineHeight
-    tp(10, y, "  Twinkle: C-C-G-G-A-A-G (Q-Q-T-T-Y-Y-T)", getThemeColor("text"))
-    y = y + lineHeight
-    tp(10, y,  "  Happy Birthday: C-C-D-C-F-E (Q-Q-W-Q-E-W)", getThemeColor("text"))
-    y = y + lineHeight
-    tp(10, y, "  ; ': Change reverb (Off->Room->Hall->Cathedral)", getThemeColor("text"))
-    y = y + lineHeight
-    tp(10, y, "  / *: Change attack/decay speed", getThemeColor("text"))
-    y = y + lineHeight + 3
+    local tp = function(x, y, txt, col)
+        for i = 1, #txt do
+            local ch = txt:sub(i, i)
+            _video:DrawSprite(vec2(x + (i-1) * 4, y), _font,
+                ch:byte()%32, math.floor(ch:byte()/32), col, color.clear)
+        end
+    end
     
-    -- Sequencer
-    tp(10, y, "SEQUENCER:", getThemeColor("success"))
-    y = y + lineHeight
-    tp(10, y, "  Space: Play/Stop sequencer", getThemeColor("text"))
-    y = y + lineHeight
-    tp(10, y, "  Tab: Switch performance/sequencer mode", getThemeColor("text"))
-    y = y + lineHeight
-    tp(10, y, "  In sequencer mode: Musical keys add/remove notes", getThemeColor("text"))
-    y = y + lineHeight + 3
+    -- Header
+    tp(10, BD.CONTENT_Y + 2, "RETROWAVE 3000 - GRID SEQUENCER", getThemeColor("text_primary"))
     
-    -- Advanced features
-    tp(10, y, "ADVANCED:", getThemeColor("success"))
-    y = y + lineHeight
-    tp(10, y, "  Ctrl+S: Save current preset", getThemeColor("text"))
-    y = y + lineHeight
-    tp(10, y, "  Ctrl+L: Load preset from file", getThemeColor("text"))
-    y = y + lineHeight
-    tp(10, y, "  Ctrl+R: Reset to default settings", getThemeColor("text"))
-    y = y + lineHeight + 3
+    -- Status bar
+    local statusY = BD.CONTENT_Y + 10
+    local statusText = "BPM:" .. sequencer.bpm .. "  "
+    if sequencer.isPlaying then
+        statusText = statusText .. "PLAYING"
+    else
+        statusText = statusText .. "STOPPED"
+    end
     
-    -- Exit
-    tp(10, y, "ESC: Exit synthesizer and return to IARG-OS", getThemeColor("error"))
+    -- Add selector lock status
+    if sequencer.selectorLocked then
+        statusText = statusText .. " | LOCKED"
+    else
+        statusText = statusText .. " | FREE"
+    end
+    
+    tp(10, statusY, statusText, getThemeColor("text_accent"))
+    
+    -- Grid - moved lower and 30% larger (15x11 -> 16x12 = 5% increase)
+    local gridStartY = BD.CONTENT_Y + 30 -- Moved 5px down
+    local cellWidth = 16  -- 15 -> 16 (5% larger)
+    local cellHeight = 12 -- 11 -> 12 (5% larger)
+    local gridStartX = 55 -- Adjusted for larger cells
+    
+    -- Draw column headers (step numbers)
+    for step = 1, sequencer.visibleSteps do
+        local actualStep = sequencer.scrollOffset + step
+        local x = gridStartX + (step-1) * cellWidth
+        tp(x, gridStartY - 8, tostring(actualStep), getThemeColor("text_secondary"))
+    end
+    
+    -- Draw grid rows (channels)
+    for channel = 1, 8 do
+        local y = gridStartY + (channel-1) * cellHeight
+        
+        -- Channel label
+        tp(10, y, "CH" .. channel, getThemeColor("text_accent"))
+        
+        -- Debug: Show channel position
+        if CLI and CLI._out and channel == 1 then
+            CLI:_out("GRID: Channel 1 at y=" .. y .. " gridStartY=" .. gridStartY, Color(255, 255, 0))
+        end
+        
+        -- Grid cells
+        for step = 1, sequencer.visibleSteps do
+            local actualStep = sequencer.scrollOffset + step
+            local x = gridStartX + (step-1) * cellWidth
+            local cell = sequencer.grid[channel][actualStep]
+            
+            -- Debug: First cell
+            if CLI and CLI._out and channel == 1 and step == 1 then
+                CLI:_out("GRID: Cell 1,1 at x=" .. x .. " y=" .. y .. " size=" .. cellWidth .. "x" .. cellHeight, Color(255, 255, 0))
+            end
+            
+            -- Cell background - Theme colors based on active state, with playback indicator
+            if cell.active then
+                -- Check if this is the currently playing step
+                if sequencer.isPlaying and actualStep == sequencer.currentPlayStep then
+                    _video:FillRect(vec2(x, y), vec2(x + cellWidth - 1, y + cellHeight - 1), getThemeColor("text_warning")) -- Warning color for playing
+                else
+                    _video:FillRect(vec2(x, y), vec2(x + cellWidth - 1, y + cellHeight - 1), getThemeColor("text_success")) -- Success color for active
+                end
+            else
+                -- Check if this is the currently playing step (even if empty)
+                if sequencer.isPlaying and actualStep == sequencer.currentPlayStep then
+                    _video:FillRect(vec2(x, y), vec2(x + cellWidth - 1, y + cellHeight - 1), getThemeColor("bg_hover")) -- Hover color for playing empty
+                else
+                    _video:FillRect(vec2(x, y), vec2(x + cellWidth - 1, y + cellHeight - 1), getThemeColor("bg_panel")) -- Panel color for inactive
+                end
+            end
+            
+            -- Cell border - Theme colors for current position and others
+            if channel == sequencer.currentChannel and actualStep == sequencer.currentStep then
+                _video:DrawRect(vec2(x, y), vec2(x + cellWidth - 1, y + cellHeight - 1), getThemeColor("border_focus")) -- Focus border for selector
+            else
+                _video:DrawRect(vec2(x, y), vec2(x + cellWidth - 1, y + cellHeight - 1), getThemeColor("border")) -- Standard border
+            end
+            
+            -- Cell content (note)
+            if cell.note then
+                local noteText = string.sub(cell.note, 1, 2) -- First 2 chars
+                tp(x + 4, y, noteText, getThemeColor("text_primary")) -- Centered in 16x12 cell
+            end
+        end
+    end
+    
+    -- Right side info panel
+    local rightPanelX = 250 -- Start of right panel
+    local rightPanelY = BD.CONTENT_Y + 10
+    
+    -- Current cell info - show note and mode if exists
+    local currentCell = sequencer.grid[sequencer.currentChannel][sequencer.currentStep]
+    
+    -- Cell info
+    local cellInfoText = "CH:" .. sequencer.currentChannel
+    tp(rightPanelX, rightPanelY, cellInfoText, getThemeColor("text_secondary"))
+    
+    if currentCell.note then
+        -- Cell has note - show detailed info
+        local noteInfoText = "NOTE:" .. currentCell.note
+        tp(rightPanelX, rightPanelY + 16, noteInfoText, getThemeColor("text_success"))
+        
+        local modeInfoText = "MODE:" .. noteModes[currentCell.mode]
+        tp(rightPanelX, rightPanelY + 24, modeInfoText, getThemeColor("text_accent"))
+        
+        if sequencer.selectorLocked then
+            local editText = "EDITING"
+            tp(rightPanelX, rightPanelY + 32, editText, getThemeColor("text_warning"))
+        end
+    else
+        -- Cell is empty - show basic info
+        local emptyText = "EMPTY"
+        tp(rightPanelX, rightPanelY + 16, emptyText, getThemeColor("text_secondary"))
+        
+        if sequencer.selectorLocked then
+            local readyText = "READY"
+            tp(rightPanelX, rightPanelY + 24, readyText, getThemeColor("text_warning"))
+        end
+    end
+    
+    -- Mode legend (show 5 available modes)
+    local legendY = rightPanelY + 40
+    tp(rightPanelX, legendY, "MODES:", getThemeColor("text_primary"))
+    tp(rightPanelX, legendY + 8, "1:Normal", getThemeColor("text_secondary"))
+    tp(rightPanelX, legendY + 16, "2:Soft", getThemeColor("text_secondary"))
+    tp(rightPanelX, legendY + 24, "3:High", getThemeColor("text_secondary"))
+    tp(rightPanelX, legendY + 32, "4:Low", getThemeColor("text_secondary"))
+    tp(rightPanelX, legendY + 40, "5:Sharp", getThemeColor("text_secondary"))
+    
+    -- Controls hint (bottom area)
+    local controlY = BD.CONTENT_Y + 140 -- Moved up 5px for visibility
+    tp(10, controlY, "Q-P,A-L,Z-C:Notes | 1-5:Modes | Arrows:Nav | Space:Play | Enter:Toggle", getThemeColor("text_secondary"))
+    local controlY2 = controlY + 7
+    tp(10, controlY2, "Tab:Duration | Ctrl+S:Save | Ctrl+L:Load | Ctrl+C:Clear | Delete:ClearCell", getThemeColor("text_secondary"))
+    
+    -- Debug: Show activeApp status
+    if CLI and CLI._out then
+        CLI:_out("DRAW: RetroMixer Grid Sequencer drawing!", Color(0, 255, 0))
+    end
 end
 
 ---------------------------------------------------------------------------
 -- Main Draw Function
 function RetroMixer:Draw()
-    if not _video then return end
-    
-    -- Debug message - Draw simple text to verify it's working
-    pcall(function()
-        _video:FillRect(vec2(0, BD.CONTENT_Y), vec2(_video.Width - 1, _video.Height - 1), color.black)
-        local tp = function(x, y, txt, col)
-            for i = 1, #txt do
-                local ch = txt:sub(i, i)
-                _video:DrawSprite(vec2(x + (i-1) * 4, y), _font,
-                    ch:byte()%32, math.floor(ch:byte()/32), col, color.clear)
-            end
-        end
-        tp(10, BD.CONTENT_Y + 10, "RETROWAVE 3000 ACTIVE", Color(255, 255, 255))
-        tp(10, BD.CONTENT_Y + 20, "Q-I: Octavas 3-5 | A-L: Octavas 2-4 | Z-X: Octavas 5", Color(150, 150, 150))
-        tp(10, BD.CONTENT_Y + 30, "18 notas con archivos .wav del ROM", Color(150, 150, 150))
-        
-        -- Draw TEST SOUND button - bigger and more visible
-        _video:FillRect(vec2(10, BD.CONTENT_Y + 50), vec2(120, 75), Color(255, 100, 0))
-        _video:DrawRect(vec2(10, BD.CONTENT_Y + 50), vec2(120, 75), Color(255, 255, 0))
-        tp(20, BD.CONTENT_Y + 60, "CLICK FOR SOUND", Color(0, 0, 0))
-        
-        -- Debug: Show activeApp status
+    if not _video then 
         if CLI and CLI._out then
-            CLI:_out("DRAW: RetroMixer is drawing!", Color(0, 255, 0))
+            CLI:_out("DRAW: No _video available!", Color(255, 0, 0))
         end
-        
-        -- Try to draw main interface
-        if synthState.showHelp then
-            drawHelpScreen()
-        else
-            drawMainInterface()
-        end
-    end)
+        return 
+    end
+    
+    -- Debug: Always show we're drawing
+    if CLI and CLI._out then
+        CLI:_out("DRAW: RetroMixer Draw() called!", Color(0, 255, 255))
+    end
+    
+    -- Draw interface directly without pcall
+    if synthState.showHelp then
+        drawHelpScreen()
+    else
+        drawMainInterface()
+    end
 end
 
 ---------------------------------------------------------------------------
@@ -958,8 +1247,12 @@ local voices = {}
 local nextChannel = 0
 local maxVoices = 8
 
--- Play note function using SoundSystem:PlayWav (method that WORKS!)
-local function playNoteFromROM(noteName, velocity)
+-- Help System
+local helpPage = 1
+local maxHelpPages = 4
+
+-- Play note function using AudioChip with mode settings
+local function playNoteFromROM(noteName, mode)
     -- Get WAV filename for this note
     local wavFile = noteToWav[noteName]
     if not wavFile then
@@ -982,44 +1275,176 @@ local function playNoteFromROM(noteName, velocity)
         return false
     end
     
-    -- Use SoundSystem:PlayWav (the method that WORKS!)
-    local success = SoundSystem:PlayWav(noteSample, false)
+    -- Get mode settings
+    local settings = modeSettings[mode] or modeSettings[1]
     
-    if CLI and CLI._out then
-        CLI:_out("RETROMIXER: Playing " .. noteName .. " (" .. wavFile .. ") using SoundSystem:PlayWav", Color(0, 255, 255))
-        if success then
-            CLI:_out("RETROMIXER: *** " .. noteName .. " PLAYING! ***", Color(255, 255, 255))
-        else
-            CLI:_out("RETROMIXER: ERROR - SoundSystem:PlayWav failed!", Color(255, 0, 0))
-        end
-    end
+    -- Use AudioChip with mode settings
+    _audioChip:Play(noteSample, 1)
+    _audioChip:SetChannelVolume(settings.volume, 1)
+    _audioChip:SetChannelPitch(settings.pitch, 1)
     
-    return success
+    print("PLAYING: " .. noteName .. " with " .. settings.name .. " (vol:" .. settings.volume .. " pitch:" .. settings.pitch .. ")")
+    
+    return true
 end
 
 ---------------------------------------------------------------------------
 -- Input Handling
 function RetroMixer:HandleKey(name, shift, ctrl)
-    print("RETROMIXER: HandleKey called with: " .. tostring(name) .. " shift=" .. tostring(shift) .. " ctrl=" .. tostring(ctrl))
+    -- Debug ALL keys to see what's happening
+    print("KEY PRESSED: '" .. tostring(name) .. "' shift=" .. tostring(shift) .. " ctrl=" .. tostring(ctrl))
+    
+    -- Handle key input
+    
+    -- DEBUG: Check if 1-5 keys are being detected
+    if name == "Alpha1" or name == "Alpha2" or name == "Alpha3" or name == "Alpha4" or name == "Alpha5" then
+        print("MODE KEY DETECTED: " .. name)
+    end
     
     -- Help toggle - FIRST PRIORITY
     if ctrl and name == "I" then
-        print("RETROMIXER: Help toggle - showing instructions (ctrl=" .. tostring(ctrl) .. ")")
         synthState.showHelp = not synthState.showHelp
         return
     end
     
     -- Exit - SECOND PRIORITY
     if name == "Escape" then
-        print("RETROMIXER: Exit")
-        if _onClose then _onClose() end
+        -- Return to CLI (like other apps)
+        if _onClose then
+            _onClose()
+        end
         return
     end
     
-    -- Don't process musical keys in help mode
+    -- Help navigation
     if synthState.showHelp then 
+        if name == "Left" then
+            helpPage = math.max(1, helpPage - 1)
+            return
+        elseif name == "Right" then
+            helpPage = math.min(maxHelpPages, helpPage + 1)
+            return
+        end
         print("RETROMIXER: In help mode, ignoring key")
         return 
+    end
+    
+    -- Grid sequencer controls
+    if name == "Space" then
+        -- Toggle playback
+        sequencer.isPlaying = not sequencer.isPlaying
+        if sequencer.isPlaying then
+            sequencer.currentPlayStep = 1
+            sequencer.playTimer = 0
+            print("RETROMIXER: Started sequence playback")
+        else
+            print("RETROMIXER: Stopped sequence playback")
+        end
+        return
+    elseif name == "Return" then
+        -- Toggle selector lock AND cell unlock
+        sequencer.selectorLocked = not sequencer.selectorLocked
+        local currentCell = sequencer.grid[sequencer.currentChannel][sequencer.currentStep]
+        
+        if sequencer.selectorLocked then
+            -- Lock selector and unlock cell for editing
+            currentCell.unlocked = true
+            print("SELECTOR LOCKED")
+        else
+            -- Unlock selector and lock cell
+            currentCell.unlocked = false
+            print("SELECTOR UNLOCKED")
+        end
+        return
+    elseif name == "Delete" then
+        -- Clear current cell completely
+        local currentCell = sequencer.grid[sequencer.currentChannel][sequencer.currentStep]
+        currentCell.active = false
+        currentCell.unlocked = false
+        currentCell.note = nil
+        currentCell.mode = 1
+        print("CELL CLEARED")
+        return
+    elseif name == "C" and ctrl then
+        -- Clear all grid with Ctrl+C
+        for channel = 1, 8 do
+            for step = 1, sequencer.maxSteps do
+                sequencer.grid[channel][step] = {
+                    note = nil,
+                    mode = 1,
+                    duration = 0.5,
+                    active = false,
+                    unlocked = false
+                }
+            end
+        end
+        sequencer.selectorLocked = false -- Reset selector lock
+        sequencer.lastUsedMode = 1 -- Reset last used mode
+        print("GRID CLEARED")
+        return
+    end
+    
+    -- Grid navigation - ONLY IF SELECTOR NOT LOCKED
+    if not sequencer.selectorLocked then
+        if name == "UpArrow" then
+            -- Change channel up
+            sequencer.currentChannel = math.max(1, sequencer.currentChannel - 1)
+            return
+        elseif name == "DownArrow" then
+            -- Change channel down
+            sequencer.currentChannel = math.min(8, sequencer.currentChannel + 1)
+            return
+        elseif name == "LeftArrow" then
+            if ctrl then
+                -- Scroll horizontal left
+                sequencer.scrollOffset = math.max(0, sequencer.scrollOffset - 1)
+            else
+                -- Change step left
+                sequencer.currentStep = math.max(1, sequencer.currentStep - 1)
+            end
+            return
+        elseif name == "RightArrow" then
+            if ctrl then
+                -- Scroll horizontal right
+                sequencer.scrollOffset = math.min(sequencer.maxSteps - sequencer.visibleSteps, sequencer.scrollOffset + 1)
+            else
+                -- Change step right
+                sequencer.currentStep = math.min(sequencer.maxSteps, sequencer.currentStep + 1)
+            end
+            return
+        end
+    end
+    
+    -- Note modes (1-5) - apply to cells with notes and replay
+    print("CHECKING MODE: not ctrl=" .. tostring(not ctrl) .. " name=" .. tostring(name))
+    if not ctrl and (name == "Alpha1" or name == "Alpha2" or name == "Alpha3" or name == "Alpha4" or name == "Alpha5") then
+        print("MODE CONDITION MET!")
+        local modeNum = 0
+        if name == "Alpha1" then modeNum = 1
+        elseif name == "Alpha2" then modeNum = 2
+        elseif name == "Alpha3" then modeNum = 3
+        elseif name == "Alpha4" then modeNum = 4
+        elseif name == "Alpha5" then modeNum = 5
+        end
+        
+        local currentCell = sequencer.grid[sequencer.currentChannel][sequencer.currentStep]
+        
+        print("DEBUG: Selector locked=" .. tostring(sequencer.selectorLocked) .. " Cell note=" .. tostring(currentCell.note) .. " Cell mode=" .. tostring(currentCell.mode))
+        
+        if currentCell.note then
+            print("MODE CHANGE: " .. currentCell.mode .. " -> " .. modeNum)
+            currentCell.mode = modeNum
+            sequencer.lastUsedMode = modeNum -- Update last used mode
+            print("MODE SET: " .. modeNum .. " (" .. noteModes[modeNum] .. ")")
+            
+            -- Replay the note with new mode
+            playNoteFromROM(currentCell.note, modeNum)
+        else
+            print("MODE ERROR: No note in cell")
+        end
+        return
+    else
+        print("MODE CONDITION FAILED")
     end
     
     -- Musical note handling - LAST PRIORITY (only if not Ctrl)
@@ -1028,13 +1453,26 @@ function RetroMixer:HandleKey(name, shift, ctrl)
         local note = keyToNote[lowerName]
         
         if note then
-            print("RETROMIXER: Musical note detected: " .. lowerName .. " -> " .. tostring(note))
-            playNoteFromROM(note, 100)
-        else
-            print("RETROMIXER: Not a musical note: " .. tostring(lowerName))
+            local currentCell = sequencer.grid[sequencer.currentChannel][sequencer.currentStep]
+            local mode = currentCell.mode or 1
+            playNoteFromROM(note, mode)
+            
+            -- Add note to current cell IF SELECTED (locked or unlocked)
+            if sequencer.selectorLocked then
+                -- Change note in selected cell
+                currentCell.note = note
+                currentCell.active = true
+                currentCell.mode = currentCell.mode or sequencer.lastUsedMode -- Keep existing mode
+                print("NOTE CHANGED: " .. note .. " (mode " .. currentCell.mode .. ")")
+            elseif currentCell.unlocked then
+                -- Add note to unlocked cell
+                currentCell.note = note
+                currentCell.active = true
+                currentCell.mode = sequencer.lastUsedMode -- Use last used mode
+                currentCell.unlocked = false -- Auto-lock after adding note
+                print("NOTE ADDED: " .. note .. " (mode " .. currentCell.mode .. ")")
+            end
         end
-    else
-        print("RETROMIXER: Ctrl key pressed, ignoring musical note")
     end
 end
 
@@ -1063,8 +1501,8 @@ function RetroMixer:Update()
         -- Process audio safely
         pcall(processAudio)
         
-        -- Update sequencer safely
-        pcall(updateSequencer)
+        -- Update grid sequencer playback
+        pcall(updateGridSequencer)
     end
 end
 
