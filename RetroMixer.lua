@@ -993,6 +993,12 @@ sequencer.currentPlayColumn = 1
 sequencer.playTimer = 0
 sequencer.maxColumns = 64  -- Maximum steps in grid
 
+-- Extended column system variables
+sequencer.totalColumns = 8        -- Total columns (starts at 8, can grow)
+sequencer.visibleColumns = 12       -- Maximum visible columns on screen
+sequencer.scrollOffset = 0          -- Horizontal scroll offset
+sequencer.maxVisibleColumns = 12    -- Maximum columns that fit on screen
+
 
 -- Note to WAV file mapping (MOVED HERE)
 local noteToWav = {
@@ -1091,6 +1097,48 @@ local function findLastColumnWithNotes()
     return lastColumn
 end
 
+-- Function to auto-scroll when selector moves outside visible area
+local function autoScrollToKeepSelectorVisible()
+    local visibleStart = sequencer.scrollOffset + 1
+    local visibleEnd = sequencer.scrollOffset + sequencer.visibleColumns
+    
+    -- Check if selector is to the right of visible area
+    if sequencer.currentStep > visibleEnd then
+        sequencer.scrollOffset = sequencer.currentStep - sequencer.visibleColumns
+        print("AUTO-SCROLL RIGHT: Selector at column " .. sequencer.currentStep .. " - Scrolling to show it")
+    end
+    
+    -- Check if selector is to the left of visible area
+    if sequencer.currentStep < visibleStart then
+        sequencer.scrollOffset = sequencer.currentStep - 1
+        print("AUTO-SCROLL LEFT: Selector at column " .. sequencer.currentStep .. " - Scrolling to show it")
+    end
+    
+    -- Ensure scroll limits are respected
+    sequencer.scrollOffset = math.max(0, sequencer.scrollOffset)
+    local maxScroll = math.max(0, sequencer.totalColumns - sequencer.visibleColumns)
+    sequencer.scrollOffset = math.min(maxScroll, sequencer.scrollOffset)
+end
+
+-- Function to add a new column to the grid
+local function addNewColumn()
+    sequencer.totalColumns = sequencer.totalColumns + 1
+    
+    -- Initialize new column cells for all channels
+    for channel = 1, 8 do
+        sequencer.grid[channel][sequencer.totalColumns] = {
+            active = false,
+            note = nil,
+            mode = 1
+        }
+    end
+    
+    print("COLUMN ADDED: New column " .. sequencer.totalColumns .. " added. Total: " .. sequencer.totalColumns)
+    
+    -- NO AUTO-SCROLL - Keep current view where it is
+    print("VIEW LOCKED: Staying at current position - Use Ctrl+Flechas to scroll manually")
+end
+
 -- Function to play all notes in a specific column
 local function playColumn(column)
     print("PLAYING COLUMN: " .. column)
@@ -1158,6 +1206,15 @@ local function drawMainInterface()
         statusText = statusText .. "STOPPED"
     end
     
+    -- Add column system info
+    statusText = statusText .. " | COLS:" .. sequencer.totalColumns
+    if sequencer.scrollOffset > 0 then
+        statusText = statusText .. " ◄"
+    end
+    if sequencer.scrollOffset < sequencer.totalColumns - sequencer.visibleColumns then
+        statusText = statusText .. " ►"
+    end
+    
     -- Add selector lock status
     if sequencer.selectorLocked then
         statusText = statusText .. " | LOCKED"
@@ -1173,11 +1230,13 @@ local function drawMainInterface()
     local cellHeight = 12 -- 11 -> 12 (5% larger)
     local gridStartX = 55 -- Adjusted for larger cells
     
-    -- Draw column headers (step numbers)
-    for step = 1, sequencer.visibleSteps do
-        local actualStep = sequencer.scrollOffset + step
-        local x = gridStartX + (step-1) * cellWidth
-        tp(x, gridStartY - 8, tostring(actualStep), getThemeColor("text_secondary"))
+    -- Draw column headers (step numbers) - using extended column system
+    for step = 1, sequencer.visibleColumns do
+        local actualColumn = sequencer.scrollOffset + step
+        if actualColumn <= sequencer.totalColumns then
+            local x = gridStartX + (step-1) * cellWidth
+            tp(x, gridStartY - 8, tostring(actualColumn), getThemeColor("text_secondary"))
+        end
     end
     
     -- Draw grid rows (channels)
@@ -1192,11 +1251,12 @@ local function drawMainInterface()
             CLI:_out("GRID: Channel 1 at y=" .. y .. " gridStartY=" .. gridStartY, Color(255, 255, 0))
         end
         
-        -- Grid cells
-        for step = 1, sequencer.visibleSteps do
-            local actualStep = sequencer.scrollOffset + step
-            local x = gridStartX + (step-1) * cellWidth
-            local cell = sequencer.grid[channel][actualStep]
+        -- Grid cells - using extended column system
+        for step = 1, sequencer.visibleColumns do
+            local actualColumn = sequencer.scrollOffset + step
+            if actualColumn <= sequencer.totalColumns then
+                local x = gridStartX + (step-1) * cellWidth
+                local cell = sequencer.grid[channel][actualColumn]
             
             -- Debug: First cell
             if CLI and CLI._out and channel == 1 and step == 1 then
@@ -1206,14 +1266,14 @@ local function drawMainInterface()
             -- Cell background - Theme colors based on active state, with playback indicator
             if cell.active then
                 -- Check if this is the currently playing column
-                if sequencer.isPlaying and actualStep == sequencer.currentPlayColumn then
+                if sequencer.isPlaying and actualColumn == sequencer.currentPlayColumn then
                     _video:FillRect(vec2(x, y), vec2(x + cellWidth - 1, y + cellHeight - 1), getThemeColor("text_warning")) -- Warning color for playing
                 else
                     _video:FillRect(vec2(x, y), vec2(x + cellWidth - 1, y + cellHeight - 1), getThemeColor("text_success")) -- Success color for active
                 end
             else
                 -- Check if this is the currently playing column (even if empty)
-                if sequencer.isPlaying and actualStep == sequencer.currentPlayColumn then
+                if sequencer.isPlaying and actualColumn == sequencer.currentPlayColumn then
                     _video:FillRect(vec2(x, y), vec2(x + cellWidth - 1, y + cellHeight - 1), getThemeColor("bg_hover")) -- Hover color for playing empty
                 else
                     _video:FillRect(vec2(x, y), vec2(x + cellWidth - 1, y + cellHeight - 1), getThemeColor("bg_panel")) -- Panel color for inactive
@@ -1221,7 +1281,7 @@ local function drawMainInterface()
             end
             
             -- Cell border - Theme colors for current position and others
-            if channel == sequencer.currentChannel and actualStep == sequencer.currentStep then
+            if channel == sequencer.currentChannel and actualColumn == sequencer.currentStep then
                 _video:DrawRect(vec2(x, y), vec2(x + cellWidth - 1, y + cellHeight - 1), getThemeColor("border_focus")) -- Focus border for selector
             else
                 _video:DrawRect(vec2(x, y), vec2(x + cellWidth - 1, y + cellHeight - 1), getThemeColor("border")) -- Standard border
@@ -1233,6 +1293,9 @@ local function drawMainInterface()
                 tp(x + 4, y + 2, noteText, getThemeColor("text_primary")) -- Moved 2px down in 16x12 cell
             end
         end
+    end
+    
+    -- Close the if statement for visible columns
     end
     
     -- Right side info panel
@@ -1282,7 +1345,7 @@ local function drawMainInterface()
     local controlY = BD.CONTENT_Y + 140 -- Moved up 5px for visibility
     tp(10, controlY, "Q-P,A-L,Z-C:Notes | 1-5:Modes | Arrows:Nav | Space:Play | Enter:Toggle", getThemeColor("text_secondary"))
     local controlY2 = controlY + 7
-    tp(10, controlY2, "Tab:Duration | Ctrl+S:Save | Ctrl+L:Load | Ctrl+C:Clear | Delete:ClearCell", getThemeColor("text_secondary"))
+    tp(10, controlY2, "Ctrl+N:AddCol | Ctrl+◄►:Scroll | Ctrl+S:Save | Ctrl+L:Load | Ctrl+C:Clear | Delete:ClearCell", getThemeColor("text_secondary"))
     
     -- Debug: Show activeApp status
     if CLI and CLI._out then
@@ -1370,6 +1433,26 @@ function RetroMixer:HandleKey(name, shift, ctrl)
         return 
     end
     
+    -- Extended column system controls - HIGHEST PRIORITY
+    if ctrl then
+        if name == "N" then
+            -- Add new column
+            addNewColumn()
+            return
+        elseif name == "Left" then
+            -- Scroll left
+            sequencer.scrollOffset = math.max(0, sequencer.scrollOffset - 1)
+            print("SCROLL LEFT: Offset " .. sequencer.scrollOffset .. " (showing columns " .. (sequencer.scrollOffset + 1) .. "-" .. (sequencer.scrollOffset + sequencer.visibleColumns) .. ")")
+            return
+        elseif name == "Right" then
+            -- Scroll right
+            local maxScroll = math.max(0, sequencer.totalColumns - sequencer.visibleColumns)
+            sequencer.scrollOffset = math.min(maxScroll, sequencer.scrollOffset + 1)
+            print("SCROLL RIGHT: Offset " .. sequencer.scrollOffset .. " (showing columns " .. (sequencer.scrollOffset + 1) .. "-" .. (sequencer.scrollOffset + sequencer.visibleColumns) .. ")")
+            return
+        end
+    end
+    
     -- Grid sequencer controls
     if name == "Space" then
         if sequencer.isPlaying then
@@ -1448,15 +1531,19 @@ function RetroMixer:HandleKey(name, shift, ctrl)
             else
                 -- Change step left
                 sequencer.currentStep = math.max(1, sequencer.currentStep - 1)
+                -- Auto-scroll to keep selector visible
+                autoScrollToKeepSelectorVisible()
             end
             return
         elseif name == "RightArrow" then
             if ctrl then
                 -- Scroll horizontal right
-                sequencer.scrollOffset = math.min(sequencer.maxSteps - sequencer.visibleSteps, sequencer.scrollOffset + 1)
+                sequencer.scrollOffset = math.min(sequencer.totalColumns - sequencer.visibleColumns, sequencer.scrollOffset + 1)
             else
                 -- Change step right
-                sequencer.currentStep = math.min(sequencer.maxSteps, sequencer.currentStep + 1)
+                sequencer.currentStep = math.min(sequencer.totalColumns, sequencer.currentStep + 1)
+                -- Auto-scroll to keep selector visible
+                autoScrollToKeepSelectorVisible()
             end
             return
         end
