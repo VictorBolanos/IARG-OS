@@ -704,7 +704,7 @@ local function updateGridSequencer()
             local cell = sequencer.grid[channel][sequencer.currentPlayStep]
             if cell.active and cell.note then
                 -- Play note with its mode
-                playNoteFromROM(cell.note, cell.mode)
+                playNoteFromROM(cell.note, cell.mode, channel)
             end
         end
         
@@ -987,8 +987,124 @@ sequencer.selectorLocked = false
 -- Remember last used mode for new notes
 sequencer.lastUsedMode = 1
 
+-- Grid playback variables
+sequencer.isPlaying = false
+sequencer.currentPlayColumn = 1
+sequencer.playTimer = 0
+sequencer.maxColumns = 64  -- Maximum steps in grid
 
--- Helper function for drawing main interface
+
+-- Note to WAV file mapping (MOVED HERE)
+local noteToWav = {
+    -- Octava 2
+    A2 = "A2.wav",
+    
+    -- Octava 3
+    B3 = "B3.wav",
+    C3 = "C3.wav", 
+    D3 = "D3.wav",
+    E3 = "E3.wav",
+    F3 = "F3.wav",
+    G3 = "G3.wav",
+    
+    -- Octava 4
+    A4 = "A4.wav",
+    B4 = "B4.wav",
+    C4 = "C4.wav",
+    D4 = "D4.wav",
+    E4 = "E4.wav",
+    F4 = "F4.wav",
+    G4 = "G4.wav",
+    
+    -- Octava 5
+    C5 = "C5.wav",
+    D5 = "D5.wav",
+    E5 = "E5.wav",
+    F5 = "F5.wav"
+}
+
+-- Keyboard to note mapping (MOVED HERE)
+local keyToNote = {
+    -- Fila superior: Q W E R T Y U I O P
+    q = "C3", w = "D3", e = "E3", r = "F3", t = "G3", 
+    y = "A4", u = "B4", i = "C5", o = "D5", p = "E5",
+    
+    -- Fila media: A S D F G H J K L
+    a = "A2", s = "C4", d = "D4", f = "E4", g = "F4", 
+    h = "G4", j = "A4", k = "B4", l = "C5",
+    
+    -- Fila inferior: Z X C V B N M
+    z = "D5", x = "E5", c = "F5"
+}
+
+-- Play note function using AudioChip with mode settings (MOVED HERE)
+local function playNoteFromROM(noteName, mode, channel)
+    -- Get WAV filename for this note
+    local wavFile = noteToWav[noteName]
+    if not wavFile then
+        if CLI and CLI._out then
+            CLI:_out("RETROMIXER: No WAV file for note: " .. tostring(noteName), Color(255, 0, 0))
+        end
+        return false
+    end
+    
+    -- Load the specific note from ROM
+    local noteSample = nil
+    pcall(function()
+        noteSample = rom.User.AudioSamples[wavFile]
+    end)
+    
+    if not noteSample then
+        if CLI and CLI._out then
+            CLI:_out("RETROMIXER: ERROR - " .. wavFile .. " not found in ROM!", Color(255, 0, 0))
+        end
+        return false
+    end
+    
+    -- Get mode settings
+    local settings = modeSettings[mode] or modeSettings[1]
+    
+    -- Use AudioChip with mode settings on specific channel
+    _audioChip:Play(noteSample, channel)
+    _audioChip:SetChannelVolume(settings.volume, channel)
+    _audioChip:SetChannelPitch(settings.pitch, channel)
+    
+    print("PLAYING: " .. noteName .. " on channel " .. channel .. " with " .. settings.name .. " (vol:" .. settings.volume .. " pitch:" .. settings.pitch .. ")")
+    
+    return true
+end
+
+-- Function to find the last column with any notes
+local function findLastColumnWithNotes()
+    local lastColumn = 1
+    for column = 1, sequencer.maxColumns do
+        -- Check if any channel has a note in this column
+        for channel = 1, 8 do
+            local cell = sequencer.grid[channel][column]
+            if cell.note then
+                lastColumn = column
+                break  -- Found a note in this column, move to next column
+            end
+        end
+    end
+    print("LAST COLUMN WITH NOTES: " .. lastColumn)
+    return lastColumn
+end
+
+-- Function to play all notes in a specific column
+local function playColumn(column)
+    print("PLAYING COLUMN: " .. column)
+    
+    for channel = 1, 8 do
+        local cell = sequencer.grid[channel][column]
+        if cell.note then
+            -- Play note with its mode settings on its specific channel
+            playNoteFromROM(cell.note, cell.mode, channel)
+            print("  Channel " .. channel .. ": " .. cell.note .. " (mode " .. cell.mode .. ")")
+        end
+    end
+end
+
 -- Helper function to get theme color with fallback (like Chess and Tetris)
 local function getThemeColor(colorName)
     -- Use actual theme properties from IARG Classic
@@ -1036,7 +1152,8 @@ local function drawMainInterface()
     local statusY = BD.CONTENT_Y + 10
     local statusText = "BPM:" .. sequencer.bpm .. "  "
     if sequencer.isPlaying then
-        statusText = statusText .. "PLAYING"
+        local lastColumnWithNotes = findLastColumnWithNotes()
+        statusText = statusText .. "PLAYING COL:" .. sequencer.currentPlayColumn .. "/" .. lastColumnWithNotes .. " (LOOP)"
     else
         statusText = statusText .. "STOPPED"
     end
@@ -1088,15 +1205,15 @@ local function drawMainInterface()
             
             -- Cell background - Theme colors based on active state, with playback indicator
             if cell.active then
-                -- Check if this is the currently playing step
-                if sequencer.isPlaying and actualStep == sequencer.currentPlayStep then
+                -- Check if this is the currently playing column
+                if sequencer.isPlaying and actualStep == sequencer.currentPlayColumn then
                     _video:FillRect(vec2(x, y), vec2(x + cellWidth - 1, y + cellHeight - 1), getThemeColor("text_warning")) -- Warning color for playing
                 else
                     _video:FillRect(vec2(x, y), vec2(x + cellWidth - 1, y + cellHeight - 1), getThemeColor("text_success")) -- Success color for active
                 end
             else
-                -- Check if this is the currently playing step (even if empty)
-                if sequencer.isPlaying and actualStep == sequencer.currentPlayStep then
+                -- Check if this is the currently playing column (even if empty)
+                if sequencer.isPlaying and actualStep == sequencer.currentPlayColumn then
                     _video:FillRect(vec2(x, y), vec2(x + cellWidth - 1, y + cellHeight - 1), getThemeColor("bg_hover")) -- Hover color for playing empty
                 else
                     _video:FillRect(vec2(x, y), vec2(x + cellWidth - 1, y + cellHeight - 1), getThemeColor("bg_panel")) -- Panel color for inactive
@@ -1113,7 +1230,7 @@ local function drawMainInterface()
             -- Cell content (note)
             if cell.note then
                 local noteText = string.sub(cell.note, 1, 2) -- First 2 chars
-                tp(x + 4, y, noteText, getThemeColor("text_primary")) -- Centered in 16x12 cell
+                tp(x + 4, y + 2, noteText, getThemeColor("text_primary")) -- Moved 2px down in 16x12 cell
             end
         end
     end
@@ -1199,48 +1316,7 @@ end
 ---------------------------------------------------------------------------
 -- Audio Functions (must be defined before HandleKey)
 
--- Note to WAV file mapping
-local noteToWav = {
-    -- Octava 2
-    A2 = "A2.wav",
-    
-    -- Octava 3
-    B3 = "B3.wav",
-    C3 = "C3.wav", 
-    D3 = "D3.wav",
-    E3 = "E3.wav",
-    F3 = "F3.wav",
-    G3 = "G3.wav",
-    
-    -- Octava 4
-    A4 = "A4.wav",
-    B4 = "B4.wav",
-    C4 = "C4.wav",
-    D4 = "D4.wav",
-    E4 = "E4.wav",
-    F4 = "F4.wav",
-    G4 = "G4.wav",
-    
-    -- Octava 5
-    C5 = "C5.wav",
-    D5 = "D5.wav",
-    E5 = "E5.wav",
-    F5 = "F5.wav"
-}
-
--- Keyboard to note mapping
-local keyToNote = {
-    -- Fila superior: Q W E R T Y U I O P
-    q = "C3", w = "D3", e = "E3", r = "F3", t = "G3", 
-    y = "A4", u = "B4", i = "C5", o = "D5", p = "E5",
-    
-    -- Fila media: A S D F G H J K L
-    a = "A2", s = "C4", d = "D4", f = "E4", g = "F4", 
-    h = "G4", j = "A4", k = "B4", l = "C5",
-    
-    -- Fila inferior: Z X C V B N M
-    z = "D5", x = "E5", c = "F5"
-}
+-- noteToWav and keyToNote moved above to avoid "attempt to call a nil value" errors
 
 -- Voice allocation for polyphony
 local voices = {}
@@ -1251,42 +1327,7 @@ local maxVoices = 8
 local helpPage = 1
 local maxHelpPages = 4
 
--- Play note function using AudioChip with mode settings
-local function playNoteFromROM(noteName, mode)
-    -- Get WAV filename for this note
-    local wavFile = noteToWav[noteName]
-    if not wavFile then
-        if CLI and CLI._out then
-            CLI:_out("RETROMIXER: No WAV file for note: " .. tostring(noteName), Color(255, 0, 0))
-        end
-        return false
-    end
-    
-    -- Load the specific note from ROM
-    local noteSample = nil
-    pcall(function()
-        noteSample = rom.User.AudioSamples[wavFile]
-    end)
-    
-    if not noteSample then
-        if CLI and CLI._out then
-            CLI:_out("RETROMIXER: ERROR - " .. wavFile .. " not found in ROM!", Color(255, 0, 0))
-        end
-        return false
-    end
-    
-    -- Get mode settings
-    local settings = modeSettings[mode] or modeSettings[1]
-    
-    -- Use AudioChip with mode settings
-    _audioChip:Play(noteSample, 1)
-    _audioChip:SetChannelVolume(settings.volume, 1)
-    _audioChip:SetChannelPitch(settings.pitch, 1)
-    
-    print("PLAYING: " .. noteName .. " with " .. settings.name .. " (vol:" .. settings.volume .. " pitch:" .. settings.pitch .. ")")
-    
-    return true
-end
+-- playNoteFromROM function moved above to avoid "attempt to call a nil value" error
 
 ---------------------------------------------------------------------------
 -- Input Handling
@@ -1331,14 +1372,20 @@ function RetroMixer:HandleKey(name, shift, ctrl)
     
     -- Grid sequencer controls
     if name == "Space" then
-        -- Toggle playback
-        sequencer.isPlaying = not sequencer.isPlaying
         if sequencer.isPlaying then
-            sequencer.currentPlayStep = 1
+            -- Stop playback and reset
+            sequencer.isPlaying = false
+            sequencer.currentPlayColumn = 1
             sequencer.playTimer = 0
-            print("RETROMIXER: Started sequence playback")
+            print("GRID PLAYBACK STOPPED - Reset to start")
         else
-            print("RETROMIXER: Stopped sequence playback")
+            -- Start continuous loop playback from beginning
+            sequencer.isPlaying = true
+            sequencer.currentPlayColumn = 1
+            sequencer.playTimer = 0
+            print("GRID LOOP STARTED - Continuous playback from column 1")
+            -- Play first column immediately
+            playColumn(1)
         end
         return
     elseif name == "Return" then
@@ -1438,7 +1485,7 @@ function RetroMixer:HandleKey(name, shift, ctrl)
             print("MODE SET: " .. modeNum .. " (" .. noteModes[modeNum] .. ")")
             
             -- Replay the note with new mode
-            playNoteFromROM(currentCell.note, modeNum)
+            playNoteFromROM(currentCell.note, modeNum, sequencer.currentChannel)
         else
             print("MODE ERROR: No note in cell")
         end
@@ -1455,7 +1502,7 @@ function RetroMixer:HandleKey(name, shift, ctrl)
         if note then
             local currentCell = sequencer.grid[sequencer.currentChannel][sequencer.currentStep]
             local mode = currentCell.mode or 1
-            playNoteFromROM(note, mode)
+            playNoteFromROM(note, mode, sequencer.currentChannel)
             
             -- Add note to current cell IF SELECTED (locked or unlocked)
             if sequencer.selectorLocked then
@@ -1491,20 +1538,42 @@ function RetroMixer:HandleMouse(button, x, y, buttonDown)
 end
 
 ---------------------------------------------------------------------------
--- Update Function
+-- Update
 function RetroMixer:Update()
-    -- Only process audio if audio chip is available
-    if _audioChip then
-        -- Update audio phase
-        audioPhase = audioPhase + 1.0 / SAMPLE_RATE
+    -- Process audio (keep existing audio processing)
+    pcall(processAudio)
+    
+    -- Update sequencer (keep existing sequencer logic)
+    pcall(updateSequencer)
+    
+    -- Update grid playback timer
+    if sequencer.isPlaying then
+        sequencer.playTimer = sequencer.playTimer + 1
         
-        -- Process audio safely
-        pcall(processAudio)
-        
-        -- Update grid sequencer playback
-        pcall(updateGridSequencer)
+        -- Check if 1 second has passed (assuming 60 FPS = 60 ticks per second)
+        if sequencer.playTimer >= 60 then
+            sequencer.playTimer = 0
+            sequencer.currentPlayColumn = sequencer.currentPlayColumn + 1
+            
+            -- Find the actual last column with notes for intelligent looping
+            local lastColumnWithNotes = findLastColumnWithNotes()
+            
+            -- Check if we've passed the last column with notes - LOOP BACK TO START
+            if sequencer.currentPlayColumn > lastColumnWithNotes then
+                -- Loop back to first column for continuous playback
+                sequencer.currentPlayColumn = 1
+                print("INTELLIGENT LOOP: Back to column 1 - Last note was at column " .. lastColumnWithNotes)
+            end
+            
+            -- Play current column (works for both normal and looped playback)
+            playColumn(sequencer.currentPlayColumn)
+        end
     end
 end
+
+---------------------------------------------------------------------------
+-- Update Function (COMPLETED ABOVE)
+-- The Update function is already defined above with grid playback logic
 
 ---------------------------------------------------------------------------
 -- Initialization
