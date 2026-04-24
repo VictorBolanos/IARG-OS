@@ -23,6 +23,183 @@ local _theme = nil
 local _onClose = nil
 local _audioChip = nil
 
+-- Note to WAV file mapping (MOVED UP - must be defined before functions that use it)
+local noteToWav = {
+    -- Octava 2
+    A2 = "A2.wav",
+    
+    -- Octava 3
+    B3 = "B3.wav",
+    C3 = "C3.wav", 
+    D3 = "D3.wav",
+    E3 = "E3.wav",
+    F3 = "F3.wav",
+    G3 = "G3.wav",
+    
+    -- Octava 4
+    A4 = "A4.wav",
+    B4 = "B4.wav",
+    C4 = "C4.wav",
+    D4 = "D4.wav",
+    E4 = "E4.wav",
+    F4 = "F4.wav",
+    G4 = "G4.wav",
+    
+    -- Octava 5
+    C5 = "C5.wav",
+    D5 = "D5.wav",
+    E5 = "E5.wav",
+    F5 = "F5.wav"
+}
+
+-- Mode settings for different playback modes
+local modeSettings = {
+    [1] = {volume = 80, pitch = 0},   -- Normal
+    [2] = {volume = 60, pitch = -12}, -- Low octave
+    [3] = {volume = 100, pitch = 12}, -- High octave
+    [4] = {volume = 40, pitch = 0},   -- Soft
+    [5] = {volume = 120, pitch = 0}   -- Loud
+}
+
+-- SoundSystem integration
+local retroSoundSystem = {
+    playNote = function(noteName, mode, channel)
+        -- Use SoundSystem instead of direct AudioChip access
+        if SoundSystem and SoundSystem:GetVolume() ~= nil then
+            -- Get WAV filename for this note
+            local wavFile = noteToWav[noteName]
+            if not wavFile then
+                print("ERROR: Unknown note: " .. noteName)
+                return false
+            end
+            
+            -- Load note sample from ROM
+            local noteSample = nil
+            pcall(function()
+                noteSample = gdt.ROM.User.AudioSamples[wavFile]
+            end)
+            
+            if not noteSample then
+                print("ERROR: Sample not found: " .. wavFile)
+                return false
+            end
+            
+            -- Play using SoundSystem
+            local success = SoundSystem:PlayWav(noteSample, false)
+            if success then
+                print("SOUND: Playing " .. noteName .. " (mode " .. mode .. ")")
+            end
+            
+            return success
+        else
+            -- Fallback to direct AudioChip if SoundSystem not available
+            return playNoteDirect(noteName, mode, channel)
+        end
+    end,
+    
+    stopNote = function(channel)
+        -- Stop note using SoundSystem
+        if SoundSystem and SoundSystem:GetVolume() ~= nil then
+            SoundSystem:Stop()
+        else
+            -- Fallback to direct AudioChip
+            if _audioChip and channel then
+                _audioChip:Stop(channel)
+            end
+        end
+    end,
+    
+    playSynthNote = function(frequency, waveform)
+        -- Generate and play synthetic note
+        if SoundSystem and SoundSystem:GetVolume() ~= nil then
+            -- For synthetic notes, we need to generate AudioSamples first
+            -- For now, fallback to direct AudioChip since SoundSystem doesn't support tone generation
+            return playSynthNoteDirect(frequency, waveform)
+        else
+            -- Fallback to direct AudioChip
+            return playSynthNoteDirect(frequency, waveform)
+        end
+    end
+}
+
+-- Fallback functions for direct AudioChip access (if SoundSystem not available)
+local function playNoteDirect(noteName, mode, channel)
+    -- Get WAV filename for this note
+    local wavFile = noteToWav[noteName]
+    if not wavFile then
+        print("ERROR: Unknown note: " .. noteName)
+        return false
+    end
+    
+    -- Load note sample from ROM
+    local noteSample = nil
+    pcall(function()
+        noteSample = gdt.ROM.User.AudioSamples[wavFile]
+    end)
+    
+    if not noteSample then
+        print("ERROR: Sample not found: " .. wavFile)
+        return false
+    end
+    
+    -- Get mode settings
+    local settings = modeSettings[mode] or modeSettings[1]
+    
+    -- Use AudioChip with mode settings on specific channel
+    if _audioChip then
+        _audioChip:Play(noteSample, channel)
+        _audioChip:SetChannelVolume(settings.volume, channel)
+        _audioChip:SetChannelPitch(settings.pitch, channel)
+        return true
+    end
+    
+    return false
+end
+
+local function playSynthNoteDirect(frequency, waveform)
+    -- Get AudioSample for this note
+    local audioSample = getAudioSample(frequency, waveform)
+    
+    -- Debug: Audio sample creation
+    if CLI and CLI._out then
+        CLI:_out("FREQ: " .. math.floor(frequency) .. "Hz, WAVE: " .. waveform, Color(0, 255, 255))
+    end
+    
+    -- Play on AudioChip - Simple and direct like SoundSystem
+    if _audioChip and audioSample then
+        -- Find available channel
+        local channel = nextChannel
+        nextChannel = (nextChannel % _audioChip.ChannelsCount) + 1
+        
+        -- Debug: AudioChip info
+        if CLI and CLI._out then
+            CLI:_out("AUDIO: Channel " .. channel .. "/" .. _audioChip.ChannelsCount, Color(0, 255, 0))
+        end
+        
+        -- Stop any existing sound on this channel
+        _audioChip:Stop(channel)
+        
+        -- Play note - Direct call like SoundSystem
+        local success = _audioChip:Play(audioSample, channel)
+        
+        -- Set volume
+        _audioChip:SetChannelVolume(50, channel)  -- 50% volume
+        
+        -- Debug: Sound played
+        if CLI and CLI._out then
+            CLI:_out("PLAYED: Note on channel " .. channel, Color(0, 255, 0))
+        end
+        
+        return success
+    else
+        -- Debug: No AudioChip or sample
+        if CLI and CLI._out then
+            CLI:_out("ERROR: No AudioChip=" .. tostring(_audioChip ~= nil) .. " or sample=" .. tostring(audioSample ~= nil), Color(255, 0, 0))
+        end
+        return false
+    end
+end
+
 ---------------------------------------------------------------------------
 -- Audio Engine Constants
 local SAMPLE_RATE = 44100
@@ -512,62 +689,24 @@ local function getAudioSample(frequency, waveform)
     return audioSamples[key]
 end
 
----------------------------------------------------------------------------
 -- Voice Management
 
 -- Allocate voice for note
 local function allocateVoice(note, velocity)
-    -- Get AudioSample for this note
+    -- Get frequency for this note
     local frequency = NOTE_FREQUENCIES[note] * (2 ^ synthState.octaveOffset)
-    local audioSample = getAudioSample(frequency, synthState.waveform)
     
-    -- Debug: Audio sample creation
-    if CLI and CLI._out then
-        CLI:_out("FREQ: " .. math.floor(frequency) .. "Hz, WAVE: " .. synthState.waveform, Color(0, 255, 255))
-    end
+    -- Use retroSoundSystem instead of direct AudioChip access
+    local success = retroSoundSystem.playSynthNote(frequency, synthState.waveform)
     
-    -- Play on AudioChip - Simple and direct like SoundSystem
-    if _audioChip and audioSample then
-        -- Find available channel
-        local channel = nextChannel
-        nextChannel = (nextChannel % _audioChip.ChannelsCount) + 1
-        
-        -- Debug: AudioChip info
-        if CLI and CLI._out then
-            CLI:_out("AUDIO: Channel " .. channel .. "/" .. _audioChip.ChannelsCount, Color(0, 255, 0))
-        end
-        
-        -- Stop any existing sound on this channel
-        _audioChip:Stop(channel)
-        
-        -- Play note - Direct call like SoundSystem
-        local success = _audioChip:Play(audioSample, channel)
-        
-        -- Set volume
-        _audioChip:SetChannelVolume(50, channel)  -- 50% volume
-        
-        -- Debug: Sound played
-        if CLI and CLI._out then
-            CLI:_out("PLAY: Success=" .. tostring(success) .. " Channel=" .. channel, Color(255, 0, 255))
-        end
-        
-        return success
-    else
-        -- Debug: No AudioChip or sample
-        if CLI and CLI._out then
-            CLI:_out("ERROR: No AudioChip=" .. tostring(_audioChip ~= nil) .. " or sample=" .. tostring(audioSample ~= nil), Color(255, 0, 0))
-        end
-        return false
-    end
-    
-    -- Update voice tracking for display
+    -- Find free voice slot
     for i = 1, MAX_VOICES do
         if not voices[i].active then
             voices[i].active = true
             voices[i].note = note
             voices[i].frequency = frequency
             voices[i].velocity = velocity
-            voices[i].channel = channel
+            voices[i].channel = 1  -- Use channel 1 for simplicity
             voices[i].time = 0
             return i
         end
@@ -585,7 +724,7 @@ local function allocateVoice(note, velocity)
     voices[oldest].note = note
     voices[oldest].frequency = frequency
     voices[oldest].velocity = velocity
-    voices[oldest].channel = channel
+    voices[oldest].channel = 1  -- Use channel 1 for simplicity
     voices[oldest].time = 0
     voices[oldest].envelope = 0
     voices[oldest].filterState = 0
@@ -597,10 +736,8 @@ end
 local function releaseVoice(note)
     for i = 1, MAX_VOICES do
         if voices[i].active and voices[i].note == note then
-            -- Stop sound on AudioChip
-            if _audioChip and voices[i].channel then
-                _audioChip:Stop(voices[i].channel)
-            end
+            -- Stop sound using retroSoundSystem
+            retroSoundSystem.stopNote(voices[i].channel)
             
             if not synthState.sustain then
                 voices[i].active = false
@@ -912,13 +1049,7 @@ local noteModes = {
     [5] = "Sharp"
 }
 
-local modeSettings = {
-    [1] = { name = "Normal", volume = 100, pitch = 1.0 },  -- Standard volume and pitch
-    [2] = { name = "Soft", volume = 50, pitch = 1.0 },     -- Half volume, normal pitch
-    [3] = { name = "High", volume = 100, pitch = 1.5 },     -- Full volume, higher pitch
-    [4] = { name = "Low", volume = 100, pitch = 0.8 },     -- Full volume, lower pitch
-    [5] = { name = "Sharp", volume = 75, pitch = 1.2 }      -- Medium volume, sharp pitch
-}
+-- modeSettings moved to top of file to avoid conflicts
 
 -- Initialize sequencer grid
 for channel = 1, 8 do
@@ -969,34 +1100,7 @@ sequencer.scrollOffset = 0          -- Horizontal scroll offset
 sequencer.maxVisibleColumns = 12    -- Maximum columns that fit on screen
 
 
--- Note to WAV file mapping (MOVED HERE)
-local noteToWav = {
-    -- Octava 2
-    A2 = "A2.wav",
-    
-    -- Octava 3
-    B3 = "B3.wav",
-    C3 = "C3.wav", 
-    D3 = "D3.wav",
-    E3 = "E3.wav",
-    F3 = "F3.wav",
-    G3 = "G3.wav",
-    
-    -- Octava 4
-    A4 = "A4.wav",
-    B4 = "B4.wav",
-    C4 = "C4.wav",
-    D4 = "D4.wav",
-    E4 = "E4.wav",
-    F4 = "F4.wav",
-    G4 = "G4.wav",
-    
-    -- Octava 5
-    C5 = "C5.wav",
-    D5 = "D5.wav",
-    E5 = "E5.wav",
-    F5 = "F5.wav"
-}
+-- noteToWav moved to top of file to avoid "attempt to index nil" errors
 
 -- Keyboard to note mapping (MOVED HERE)
 local keyToNote = {
@@ -1012,39 +1116,10 @@ local keyToNote = {
     z = "D5", x = "E5", c = "F5"
 }
 
--- Play note function using AudioChip with mode settings (MOVED HERE)
+-- Play note function using retroSoundSystem with mode settings
 local function playNoteFromROM(noteName, mode, channel)
-    -- Get WAV filename for this note
-    local wavFile = noteToWav[noteName]
-    if not wavFile then
-        if CLI and CLI._out then
-            CLI:_out("RETROMIXER: No WAV file for note: " .. tostring(noteName), Color(255, 0, 0))
-        end
-        return false
-    end
-    
-    -- Load the specific note from ROM
-    local noteSample = nil
-    pcall(function()
-        noteSample = rom.User.AudioSamples[wavFile]
-    end)
-    
-    if not noteSample then
-        if CLI and CLI._out then
-            CLI:_out("RETROMIXER: ERROR - " .. wavFile .. " not found in ROM!", Color(255, 0, 0))
-        end
-        return false
-    end
-    
-    -- Get mode settings
-    local settings = modeSettings[mode] or modeSettings[1]
-    
-    -- Use AudioChip with mode settings on specific channel
-    _audioChip:Play(noteSample, channel)
-    _audioChip:SetChannelVolume(settings.volume, channel)
-    _audioChip:SetChannelPitch(settings.pitch, channel)
-    
-    return true
+    -- Use retroSoundSystem instead of direct AudioChip access
+    return retroSoundSystem.playNote(noteName, mode, channel)
 end
 
 -- Function to find the last column with any notes

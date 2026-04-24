@@ -9,6 +9,7 @@
 --   touch <name>          - create empty text file
 --   rm <name>             - delete file or empty folder
 --   rename <old> <new>    - rename item
+--   mv <src> <dst>        - move/rename item
 --   cat <name>            - print file contents
 --   run TextPad [file]    - open text editor
 --   run AI                - open AI chat
@@ -194,6 +195,7 @@ function CLI:_execute(cmdStr)
         self:_out("  touch <name>       Create text file", _theme.output)
         self:_out("  rm <name>          Delete file or folder", _theme.output)
         self:_out("  rename <old> <new> Rename item", _theme.output)
+        self:_out("  mv <src> <dst>     Move/rename item", _theme.output)
         self:_out("  cat <name>         Print file contents", _theme.output)
         self:_out("  run TextPad [file] Open text editor", _theme.output)
         self:_out("  run ai             Open AI chat", _theme.output)
@@ -254,8 +256,30 @@ function CLI:_execute(cmdStr)
             if node then
                 self:_out("Folder created: " .. arg1, _theme.success)
                 SaveSystem:Save(OSConfig)
+                -- Try to play success sound if available
+                if SoundSystem and SoundSystem:GetVolume() ~= nil then
+                    local rom = gdt.ROM
+                    local successSample = nil
+                    if rom and rom.User and rom.User.AudioSamples then
+                        successSample = rom.User.AudioSamples["success.wav"]
+                    end
+                    if successSample then
+                        SoundSystem:PlayWav(successSample, false)
+                    end
+                end
             else
                 self:_out("Error: node limit reached.", _theme.error)
+                -- Try to play error sound if available
+                if SoundSystem and SoundSystem:GetVolume() ~= nil then
+                    local rom = gdt.ROM
+                    local errorSample = nil
+                    if rom and rom.User and rom.User.AudioSamples then
+                        errorSample = rom.User.AudioSamples["error.wav"]
+                    end
+                    if errorSample then
+                        SoundSystem:PlayWav(errorSample, false)
+                    end
+                end
             end
         end
 
@@ -302,6 +326,81 @@ function CLI:_execute(cmdStr)
                 VFS:Rename(target, arg2)
                 self:_out("Renamed: " .. arg1 .. " -> " .. arg2, _theme.success)
                 SaveSystem:Save(OSConfig)
+            end
+        end
+
+    elseif cmd == "mv" then
+        if not arg1 or not arg2 then
+            self:_out("Usage: mv <source> <destination>", _theme.error)
+        else
+            local source = findFileWithSpaces(cwd, arg1)
+            if not source then
+                self:_out("Not found: " .. arg1, _theme.error)
+            else
+                -- Check if destination is a path (contains /) or just a name
+                local destPath = arg2
+                local destName = arg2
+                local destParent = cwd
+                
+                -- If destination contains a path, parse it
+                if destPath:find("/") then
+                    local parts = {}
+                    for part in destPath:gmatch("[^/]+") do
+                        table.insert(parts, part)
+                    end
+                    
+                    if #parts > 1 then
+                        destName = parts[#parts]
+                        local pathSoFar = cwd
+                        
+                        -- Navigate to the parent directory
+                        for i = 1, #parts - 1 do
+                            local part = parts[i]
+                            if part == ".." then
+                                if pathSoFar.parent then
+                                    pathSoFar = pathSoFar.parent
+                                else
+                                    self:_out("Invalid path: cannot go above root", _theme.error)
+                                    pathSoFar = nil
+                                    break
+                                end
+                            elseif part == "~" or part == "" then
+                                pathSoFar = VFS:GetRoot()
+                            else
+                                local nextDir = VFS:FindChild(pathSoFar, part)
+                                if not nextDir or nextDir.type ~= BD.NT_FOLDER then
+                                    self:_out("Path not found: " .. part, _theme.error)
+                                    pathSoFar = nil
+                                    break
+                                end
+                                pathSoFar = nextDir
+                            end
+                        end
+                        
+                        if pathSoFar then
+                            destParent = pathSoFar
+                        else
+                            destParent = nil
+                        end
+                    end
+                end
+                
+                if destParent then
+                    -- Check if destination already exists
+                    local existing = VFS:FindChild(destParent, destName)
+                    if existing then
+                        self:_out("Destination already exists: " .. destPath, _theme.error)
+                    else
+                        -- Move the file/folder
+                        local success = VFS:Move(source, destParent, destName)
+                        if success then
+                            self:_out("Moved: " .. arg1 .. " -> " .. destPath, _theme.success)
+                            SaveSystem:Save(OSConfig)
+                        else
+                            self:_out("Error moving file: " .. arg1, _theme.error)
+                        end
+                    end
+                end
             end
         end
 
@@ -424,46 +523,66 @@ function CLI:_execute(cmdStr)
             self:_out("  error   - Play error sound", _theme.output)
             self:_out("  success - Play success sound", _theme.output)
             self:_out("  stop    - Stop all sounds", _theme.output)
-            if SoundSystem and SoundSystem:IsInitialized() then
+            if SoundSystem and SoundSystem:GetVolume() ~= nil then
                 self:_out("Status: Initialized", _theme.success)
                 self:_out("Volume: " .. math.floor(SoundSystem:GetVolume() * 100) .. "%", _theme.output)
-                if SoundSystem:IsPlayingAudioSample() then
-                    local sample = SoundSystem:GetCurrentAudioSample()
-                    local channel = SoundSystem:GetCurrentChannel()
-                    self:_out("Currently playing: " .. (sample and sample.Name or "Unknown") .. " on channel " .. channel, _theme.output)
-                elseif SoundSystem:IsPlayingMelody() then
-                    self:_out("Currently playing: Melody", _theme.output)
+                if SoundSystem:IsPlaying() then
+                    self:_out("Currently playing: Audio", _theme.output)
+                else
+                    self:_out("Currently: Not playing", _theme.dim)
                 end
             else
                 self:_out("Status: Not initialized", _theme.error)
             end
         else
             local action = arg1:lower()
-            if SoundSystem and SoundSystem:IsInitialized() then
+            if SoundSystem and SoundSystem:GetVolume() ~= nil then
                 if action == "test" then
-                    SoundSystem:PlayTone(440, 500)
-                    self:_out("Playing test tone (440Hz)", _theme.success)
+                    -- For test tone, we need to create a simple AudioSample
+                    -- For now, just show message (SoundSystem doesn't support tone generation directly)
+                    self:_out("Test tone not available - use boot sound instead", _theme.dim)
                 elseif action == "boot" then
-                    -- Try to load boot AudioSample from ROM first
+                    -- Try to load boot AudioSample from ROM
                     local rom = gdt.ROM
                     local bootAudioSample = nil
                     if rom and rom.User and rom.User.AudioSamples then
-                        bootAudioSample = rom.User.AudioSamples[SoundSystem.BOOT_AUDIO_SAMPLE]
+                        bootAudioSample = rom.User.AudioSamples["boot.wav"]
                     end
                     
                     if bootAudioSample then
                         SoundSystem:PlayWav(bootAudioSample, false)
-                        self:_out("Playing boot sound (AudioSample: " .. bootAudioSample.Name .. ")", _theme.success)
+                        self:_out("Playing boot sound", _theme.success)
                     else
-                        SoundSystem:PlayMelody(SoundSystem.BOOT_MELODY, false)
-                        self:_out("Playing boot melody (AudioSample not found)", _theme.success)
+                        self:_out("Boot sound not found in ROM", _theme.error)
                     end
                 elseif action == "error" then
-                    SoundSystem:PlayMelody(SoundSystem.ERROR_MELODY, false)
-                    self:_out("Playing error sound", _theme.error)
+                    -- Error sound - try to find an error sample or use a default
+                    local rom = gdt.ROM
+                    local errorSample = nil
+                    if rom and rom.User and rom.User.AudioSamples then
+                        errorSample = rom.User.AudioSamples["error.wav"]
+                    end
+                    
+                    if errorSample then
+                        SoundSystem:PlayWav(errorSample, false)
+                        self:_out("Playing error sound", _theme.error)
+                    else
+                        self:_out("Error sound not found", _theme.dim)
+                    end
                 elseif action == "success" then
-                    SoundSystem:PlayMelody(SoundSystem.SUCCESS_MELODY, false)
-                    self:_out("Playing success sound", _theme.success)
+                    -- Success sound - try to find a success sample or use a default
+                    local rom = gdt.ROM
+                    local successSample = nil
+                    if rom and rom.User and rom.User.AudioSamples then
+                        successSample = rom.User.AudioSamples["success.wav"]
+                    end
+                    
+                    if successSample then
+                        SoundSystem:PlayWav(successSample, false)
+                        self:_out("Playing success sound", _theme.success)
+                    else
+                        self:_out("Success sound not found", _theme.dim)
+                    end
                 elseif action == "stop" then
                     SoundSystem:Stop()
                     self:_out("Sound stopped", _theme.dim)
